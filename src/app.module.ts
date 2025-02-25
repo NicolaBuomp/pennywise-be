@@ -10,6 +10,7 @@ import { SupabaseModule } from './supabase/supabase.module';
 import { ShoppingListModule } from './shopping-list/shopping-list.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { AuthMiddleware } from './middleware/auth.middleware';
+import { ShoppingItemsModule } from './shopping-items/shopping-items.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthMiddleware } from './middleware/auth.middleware';
     SupabaseModule,
     GroupsModule,
     ShoppingListModule,
+    ShoppingItemsModule,
     ExpensesModule,
   ],
   controllers: [],

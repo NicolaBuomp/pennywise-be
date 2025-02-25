@@ -2,41 +2,39 @@ import {
   Controller,
   Get,
   Post,
-  Put,
   Delete,
   Body,
   Param,
+  Req,
+  Patch,
 } from '@nestjs/common';
 import { ShoppingListService } from './shopping-list.service';
-import { CreateItemDto } from './dto/create-item.dto';
-import { UpdateItemDto } from './dto/update-item.dto';
 
-@Controller('shopping-list')
+@Controller('shopping-lists')
 export class ShoppingListController {
   constructor(private readonly shoppingListService: ShoppingListService) {}
 
   @Post()
-  async create(@Body() createItemDto: CreateItemDto) {
-    return this.shoppingListService.create(createItemDto);
+  create(@Req() req, @Body() body: { groupId: string; name: string }) {
+    return this.shoppingListService.create(
+      body.groupId,
+      body.name,
+      req.user.id,
+    );
   }
 
-  @Get()
-  async findAll() {
-    return this.shoppingListService.findAll();
+  @Get(':groupId')
+  findAll(@Req() req, @Param('groupId') groupId: string) {
+    return this.shoppingListService.findAll(groupId, req.user.id);
   }
 
-  @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.shoppingListService.findOne(id);
-  }
-
-  @Put(':id')
-  async update(@Param('id') id: string, @Body() updateItemDto: UpdateItemDto) {
-    return this.shoppingListService.update(id, updateItemDto);
+  @Patch(':id')
+  update(@Req() req, @Param('id') id: string, @Body() body: { name: string }) {
+    return this.shoppingListService.updateName(id, body.name, req.user.id);
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    return this.shoppingListService.remove(id);
+  remove(@Req() req, @Param('id') id: string) {
+    return this.shoppingListService.remove(id, req.user.id);
   }
 }
