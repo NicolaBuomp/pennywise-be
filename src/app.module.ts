@@ -11,6 +11,7 @@ import { ShoppingListModule } from './shopping-list/shopping-list.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { AuthMiddleware } from './middleware/auth.middleware';
 import { ShoppingItemsModule } from './shopping-items/shopping-items.module';
+import { ProfilesModule } from './profiles/profiles.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { ShoppingItemsModule } from './shopping-items/shopping-items.module';
     ShoppingListModule,
     ShoppingItemsModule,
     ExpensesModule,
+    ProfilesModule,
   ],
   controllers: [],
   providers: [],
