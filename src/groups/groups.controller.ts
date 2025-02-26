@@ -91,4 +91,9 @@ export class GroupsController {
   getSentInvites(@Req() req) {
     return this.groupsService.getSentInvites(req.user.id);
   }
+
+  @Post('clean-expired-invites')
+  cleanExpiredInvites() {
+    return this.groupsService.expireOldInvites();
+  }
 }

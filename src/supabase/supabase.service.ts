@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class SupabaseService {
+  private readonly logger = new Logger(SupabaseService.name);
   private supabase: SupabaseClient;
 
   constructor(private configService: ConfigService) {
@@ -20,5 +21,15 @@ export class SupabaseService {
 
   getClient(): SupabaseClient {
     return this.supabase;
+  }
+
+  async executeQuery(query) {
+    try {
+      return await query;
+    } catch (error) {
+      this.logger.error(`Errore nella query: ${JSON.stringify(query)}`);
+      this.logger.error(`Dettagli: ${error.message}`);
+      throw error;
+    }
   }
 }

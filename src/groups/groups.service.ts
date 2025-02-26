@@ -59,6 +59,53 @@ export class GroupsService {
     return data;
   }
 
+  async getUserGroups(userId: string) {
+    const { data, error } = await this.supabase
+      .getClient()
+      .from('groups')
+      .select(
+        `
+      id, name, created_at,
+      group_members(role)
+    `,
+      )
+      .eq('group_members.user_id', userId);
+
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async deleteGroup(groupId: string, userId: string) {
+    // Controlla se il gruppo ha spese attive
+    const { data: expenses } = await this.supabase
+      .getClient()
+      .from('expenses')
+      .select('id')
+      .eq('group_id', groupId);
+
+    if (!expenses || expenses.length > 0) {
+      throw new ForbiddenException(
+        'Non puoi eliminare un gruppo con spese attive',
+      );
+    }
+
+    // Controlla se l'utente è admin
+    const { data: membership } = await this.supabase
+      .getClient()
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .single();
+
+    if (!membership || membership.role !== 'admin') {
+      throw new ForbiddenException('Solo un admin può eliminare il gruppo');
+    }
+
+    await this.supabase.getClient().from('groups').delete().eq('id', groupId);
+    return { message: 'Gruppo eliminato con successo' };
+  }
+
   async remove(groupId: string, userId: string) {
     // Controlla se l'utente è admin
     const { data } = await this.supabase
@@ -303,5 +350,21 @@ export class GroupsService {
     }
 
     return data;
+  }
+
+  async expireOldInvites() {
+    // Cancella gli inviti scaduti dopo 24 ore
+    const { error } = await this.supabase
+      .getClient()
+      .from('group_invites')
+      .delete()
+      .lt('expires_at', new Date().toISOString());
+
+    if (error) {
+      console.error(
+        'Errore nella cancellazione degli inviti scaduti:',
+        error.message,
+      );
+    }
   }
 }
