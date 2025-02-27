@@ -16,11 +16,12 @@ export class AuthMiddleware implements NestMiddleware {
   private readonly logger = new Logger(AuthMiddleware.name);
 
   constructor(
-      private readonly configService: ConfigService,
-      private readonly supabaseService: SupabaseService,
-      private readonly profilesService: ProfilesService,
+    private readonly configService: ConfigService,
+    private readonly supabaseService: SupabaseService,
+    private readonly profilesService: ProfilesService,
   ) {
-    this.JWT_SECRET = this.configService.get<string>('SUPABASE_JWT_SECRET') || '';
+    this.JWT_SECRET =
+      this.configService.get<string>('SUPABASE_JWT_SECRET') || '';
   }
 
   // Metodo per definire le rotte pubbliche
@@ -61,7 +62,10 @@ export class AuthMiddleware implements NestMiddleware {
 
       try {
         // Verifica il token tramite Supabase
-        const { data: { user }, error } = await this.supabaseService.getClient().auth.getUser(token);
+        const {
+          data: { user },
+          error,
+        } = await this.supabaseService.getClient().auth.getUser(token);
 
         if (error || !user) {
           if (isPublicRoute) {
@@ -72,14 +76,14 @@ export class AuthMiddleware implements NestMiddleware {
 
         // Assicura l'esistenza del profilo
         const profile = await this.profilesService.ensureProfileExists(
-            user.id,
-            user,
+          user.id,
+          user,
         );
 
         // Aggiorna l'ultima attività in background
         this.profilesService.updateLastActive(user.id).catch((err) => {
           this.logger.warn(
-              `Errore nell'aggiornamento di lastActive: ${err.message}`,
+            `Errore nell'aggiornamento di lastActive: ${err.message}`,
           );
         });
 

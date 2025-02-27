@@ -72,8 +72,8 @@ export class ProfilesController {
   })
   @UsePipes(new ValidationPipe({ transform: true }))
   async updateProfile(
-      @Req() req,
-      @Body() updateProfileDto: UpdateProfileDto,
+    @Req() req,
+    @Body() updateProfileDto: UpdateProfileDto,
   ): Promise<ProfileDto> {
     return this.profilesService.updateProfile(req.user.id, updateProfileDto);
   }
@@ -126,13 +126,13 @@ export class ProfilesController {
     }
 
     const fileExt = file.originalname
-        ? file.originalname.split('.').pop()?.toLowerCase() || 'jpg'
-        : 'jpg';
+      ? file.originalname.split('.').pop()?.toLowerCase() || 'jpg'
+      : 'jpg';
 
     const avatarUrl = await this.profilesService.uploadAvatar(
-        req.user.id,
-        file.buffer,
-        fileExt,
+      req.user.id,
+      file.buffer,
+      fileExt,
     );
 
     return { avatarUrl };

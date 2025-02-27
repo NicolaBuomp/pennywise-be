@@ -1,99 +1,189 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Pennywise API - Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## Overview
+Pennywise is a full-stack application designed to help users manage shared expenses and shopping lists within groups. This repository contains the backend API built with NestJS and Supabase for data persistence and authentication.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Features
+- **User Authentication**: Secure authentication using Supabase Auth with email verification
+- **Group Management**: Create, join, and manage expense sharing groups
+- **Expense Tracking**: Record, categorize, and split expenses among group members
+- **Balance Calculation**: Automatically calculate who owes what to whom within groups
+- **Shopping Lists**: Create and manage shared shopping lists with real-time updates
+- **Profile Management**: User profile creation and management
 
-## Description
+## Tech Stack
+- **Framework**: NestJS
+- **Database**: PostgreSQL (via Supabase)
+- **Authentication**: Supabase Auth
+- **Storage**: Supabase Storage (for user avatars)
+- **Real-time**: WebSockets (Socket.io) for real-time updates
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+## Project Structure
+```
+src/
+├── app.module.ts             # Main application module
+├── main.ts                   # Application entry point
+├── exception-filters/        # Global exception handling
+├── middleware/               # Application middleware
+│   └── auth.middleware.ts    # Authentication middleware
+├── supabase/                 # Supabase integration
+│   ├── supabase.module.ts
+│   └── supabase.service.ts
+├── groups/                   # Group management feature
+├── expenses/                 # Expense tracking feature
+├── shopping-list/            # Shopping list feature
+├── shopping-items/           # Shopping list items feature
+├── profiles/                 # User profile management
+└── notifications/            # User notifications
 ```
 
-## Compile and run the project
+## API Endpoints
 
-```bash
-# development
-$ npm run start
+### Authentication
+Authentication is handled by Supabase. The API validates Supabase JWT tokens.
 
-# watch mode
-$ npm run start:dev
+### Groups
+- `GET /groups` - Get all groups the user is a member of
+- `POST /groups` - Create a new group
+- `DELETE /groups/:id` - Delete a group
+- `GET /groups/:groupId/members` - Get all members of a group
+- `POST /groups/:groupId/members` - Add a member to a group
+- `DELETE /groups/:groupId/members/:userId` - Remove a member from a group
+- `PATCH /groups/:groupId/members/:userId` - Update a member's role
+- `POST /groups/:groupId/invite` - Create an invitation to join a group
+- `POST /groups/invite/accept/:inviteId` - Accept a group invitation
+- `GET /groups/my-invites` - Get all invitations sent by the user
 
-# production mode
-$ npm run start:prod
+### Shopping Lists
+- `GET /shopping-lists/:groupId` - Get all shopping lists for a group
+- `POST /shopping-lists` - Create a new shopping list
+- `PATCH /shopping-lists/:id` - Update a shopping list name
+- `DELETE /shopping-lists/:id` - Delete a shopping list
+
+### Shopping Items
+- `GET /shopping-items/:listId` - Get all items in a shopping list
+- `POST /shopping-items` - Add an item to a shopping list
+- `PATCH /shopping-items/:id` - Update an item (name, quantity, completion)
+- `DELETE /shopping-items/:id` - Remove an item from a shopping list
+
+### Expenses
+- `GET /expenses/:groupId` - Get all expenses for a group
+- `POST /expenses` - Create a new expense
+- `GET /expenses/balances/:groupId` - Get the balance sheet for a group
+- `PATCH /expenses/:expenseId/settle` - Mark an expense as settled
+- `DELETE /expenses/:expenseId` - Delete an expense
+- `GET /expenses/balances/net/:groupId` - Get net balances for a group
+- `POST /expenses/simplify/:groupId` - Simplify balances for a group
+
+### Profiles
+- `GET /profiles` - Get the current user's profile
+- `PUT /profiles` - Update the current user's profile
+- `POST /profiles/ensure` - Ensure the user has a profile
+- `POST /profiles/avatar` - Upload a profile avatar
+- `POST /profiles/last-active` - Update the user's last active timestamp
+
+## Database Schema
+
+### Tables
+- `auth.users` (Managed by Supabase)
+- `profiles` - User profiles
+- `groups` - User groups
+- `group_members` - Group membership and roles
+- `group_invites` - Invitations to join groups
+- `shopping_lists` - Shopping lists
+- `shopping_items` - Items within shopping lists
+- `expenses` - Expenses within groups
+- `expense_participants` - Participants in expenses
+- `group_balances` - Current balances between users
+
+## Setup Instructions
+
+### Prerequisites
+- Node.js (v14 or later)
+- npm or yarn
+- Supabase account and project
+
+### Environment Variables
+Create `.env.development.local` and `.env.production` files with the following variables:
+
+```env
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_JWT_SECRET=your-jwt-secret
+
+# Frontend URL (for redirects)
+FRONTEND_URL=http://localhost:5173
+
+# Server
+PORT=3000
 ```
 
-## Run tests
+### Installation
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the development server:
+   ```bash
+   npm run start:dev
+   ```
 
-```bash
-# unit tests
-$ npm run test
+### Database Setup
+Create the necessary tables in your Supabase project:
 
-# e2e tests
-$ npm run test:e2e
+1. `profiles` table
+   ```sql
+   CREATE TABLE profiles (
+     id UUID REFERENCES auth.users(id) PRIMARY KEY,
+     name TEXT,
+     surname TEXT,
+     display_name TEXT NOT NULL,
+     phone_number TEXT,
+     avatar_url TEXT,
+     language TEXT DEFAULT 'it',
+     currency TEXT DEFAULT 'EUR',
+     theme TEXT DEFAULT 'light',
+     last_active TIMESTAMP,
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+   );
 
-# test coverage
-$ npm run test:cov
-```
+   -- Enable RLS
+   ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+   -- Create policy
+   CREATE POLICY "Users can view and update their own profiles"
+     ON profiles
+     FOR ALL
+     USING (auth.uid() = id)
+     WITH CHECK (auth.uid() = id);
+   ```
+
+2. Set up other tables (groups, expenses, etc.) with appropriate schemas and RLS policies.
 
 ## Deployment
+The application can be deployed using various methods:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+1. Traditional VPS deployment:
+   ```bash
+   npm run build
+   npm run start:prod
+   ```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+2. Containerized deployment (Docker):
+   ```bash
+   docker build -t pennywise-api .
+   docker run -p 3000:3000 pennywise-api
+   ```
 
-```bash
-$ npm install -g mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## Contributing
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes: `git commit -am 'Add new feature'`
+4. Push the branch: `git push origin feature/my-feature`
+5. Submit a pull request
 
 ## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is licensed under the MIT License.
