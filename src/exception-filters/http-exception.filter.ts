@@ -1,27 +1,49 @@
-// exception-filters/http-exception.filter.ts
 import {
   ExceptionFilter,
   Catch,
   ArgumentsHost,
   HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Response } from 'express';
 
-@Catch(HttpException)
+@Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  catch(exception: HttpException, host: ArgumentsHost) {
+  catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const status = exception.getStatus();
-    const exceptionResponse = exception.getResponse();
+    const request = ctx.getRequest<Request>();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Internal server error';
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const responseMessage = exception.getResponse();
+      message =
+        typeof responseMessage === 'string'
+          ? responseMessage
+          : (responseMessage as { message: string }).message;
+    }
+
+    // Log error
+    console.error(`HTTP Error: ${status} - ${message} - ${request.url}`);
+
+    // Handle Supabase errors
+    if (typeof exception === 'object' && exception !== null) {
+      const supabaseError = (exception as { error?: { message?: string } })
+        .error;
+      if (supabaseError) {
+        status = HttpStatus.BAD_REQUEST;
+        message = supabaseError.message || 'Supabase request failed';
+      }
+    }
 
     response.status(status).json({
       statusCode: status,
-      message:
-        typeof exceptionResponse === 'string'
-          ? exceptionResponse
-          : (exceptionResponse as any).message,
+      message,
       timestamp: new Date().toISOString(),
+      path: request.url,
     });
   }
 }

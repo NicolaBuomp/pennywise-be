@@ -1,15 +1,34 @@
-// src/profiles/dto/profile.dto.ts
+import { IsString, IsOptional, IsUUID } from 'class-validator';
+
 export class ProfileDto {
+  @IsUUID()
   id: string;
-  firstName: string;
-  lastName: string;
-  displayName: string;
-  phoneNumber: string;
-  avatarUrl: string;
-  language: string;
-  currency: string;
-  theme: string;
-  lastActive: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+
+  @IsOptional()
+  @IsString()
+  first_name?: string;
+
+  @IsOptional()
+  @IsString()
+  last_name?: string;
+
+  @IsOptional()
+  @IsString()
+  full_name?: string; // Generato automaticamente da trigger
+
+  @IsOptional()
+  @IsString()
+  phone_number?: string;
+
+  @IsOptional()
+  @IsString()
+  language?: string = 'it';
+
+  @IsOptional()
+  @IsString()
+  currency?: string = 'EUR';
+
+  @IsOptional()
+  @IsString()
+  avatar_url?: string;
 }

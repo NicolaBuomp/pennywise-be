@@ -1,64 +1,34 @@
-// src/profiles/dto/update-profile.dto.ts
-import { IsOptional, IsString, IsUrl } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsOptional, IsUUID } from 'class-validator';
 
 export class UpdateProfileDto {
-  @ApiProperty({ required: false, description: "Nome dell'utente" })
-  @IsString()
-  @IsOptional()
-  firstName?: string;
+  @IsUUID()
+  id: string;
 
-  @ApiProperty({ required: false, description: "Cognome dell'utente" })
+  @IsOptional()
   @IsString()
-  @IsOptional()
-  lastName?: string;
+  first_name?: string;
 
-  @ApiProperty({
-    required: false,
-    description: "Nome visualizzato dell'utente",
-  })
+  @IsOptional()
   @IsString()
-  @IsOptional()
-  displayName?: string;
+  last_name?: string;
 
-  @ApiProperty({
-    required: false,
-    description: "Numero di telefono dell'utente",
-  })
+  @IsOptional()
   @IsString()
-  @IsOptional()
-  phoneNumber?: string;
+  full_name?: string; // Generato automaticamente da trigger
 
-  @ApiProperty({ required: false, description: "URL dell'avatar dell'utente" })
-  @IsUrl()
   @IsOptional()
-  avatarUrl?: string;
-
-  @ApiProperty({
-    required: false,
-    description: "Lingua preferita dell'utente",
-    default: 'it',
-  })
   @IsString()
-  @IsOptional()
-  language?: string;
+  phone_number?: string;
 
-  @ApiProperty({
-    required: false,
-    description: "Valuta preferita dell'utente",
-    default: 'EUR',
-  })
-  @IsString()
   @IsOptional()
-  currency?: string;
+  @IsString()
+  language?: string = 'it';
 
-  @ApiProperty({
-    required: false,
-    description: "Tema preferito dell'utente",
-    default: 'light',
-    enum: ['light', 'dark', 'system'],
-  })
-  @IsString()
   @IsOptional()
-  theme?: string;
+  @IsString()
+  currency?: string = 'EUR';
+
+  @IsOptional()
+  @IsString()
+  avatar_url?: string;
 }

@@ -1,322 +1,156 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { CreateExpenseDto, SettleExpenseDto } from './dto/expense.dto';
 
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(private readonly supabaseService: SupabaseService) {}
 
-  async create(
-    body: {
-      groupId: string;
-      amount: number;
-      currency: string;
-      description?: string;
-      paidBy: string;
-      category?: string;
-      splitMethod: 'equal' | 'custom';
-      participants: { userId: string; amount: number }[];
-    },
-    userId: string,
-  ) {
-    // Controlla se l'utente è membro del gruppo
-    const { data: membership } = await this.supabase
-      .getClient()
-      .from('group_members')
-      .select('id')
-      .eq('group_id', body.groupId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!membership) {
-      throw new ForbiddenException('Non fai parte di questo gruppo');
-    }
-
-    // Crea la spesa e seleziona l'ID della spesa creata
-    const { data: expense, error } = await this.supabase
+  async createExpense(userId: string, createExpenseDto: CreateExpenseDto) {
+    const { data, error } = await this.supabaseService
       .getClient()
       .from('expenses')
-      .insert([
-        {
-          group_id: body.groupId,
-          amount: body.amount,
-          currency: body.currency,
-          description: body.description,
-          paid_by: body.paidBy,
-          category: body.category,
-          split_method: body.splitMethod,
-        },
-      ])
-      .select('id, paid_by, amount') // 👈 Seleziona l'ID e il pagatore della spesa
+      .insert({ ...createExpenseDto, user_id: userId })
+      .select()
       .single();
 
-    if (error || !expense) {
-      throw new Error(
-        error?.message || 'Errore durante la creazione della spesa',
-      );
+    if (error) {
+      throw new Error(error.message);
     }
 
-    // Aggiungere i partecipanti alla spesa
-    const participantsData = body.participants.map((p) => ({
-      expense_id: expense.id,
-      user_id: p.userId,
-      amount: p.amount,
-    }));
-
-    await this.supabase
-      .getClient()
-      .from('expense_participants')
-      .insert(participantsData);
-
-    // Aggiornare il bilancio del gruppo
-    for (const participant of body.participants) {
-      if (participant.userId !== expense.paid_by) {
-        await this.updateBalance(
-          body.groupId,
-          participant.userId,
-          expense.paid_by,
-          participant.amount,
-        );
-      }
-    }
-
-    return { message: 'Spesa registrata con successo', expense };
-  }
-
-  async getNetBalances(groupId: string, userId: string) {
-    const { data: membership } = await this.supabase
-      .getClient()
-      .from('group_members')
-      .select('id')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!membership) {
-      throw new ForbiddenException('Non fai parte di questo gruppo');
-    }
-
-    const { data: balances } = await this.supabase
-      .getClient()
-      .from('group_balances')
-      .select('user_id, owes_to, amount')
-      .eq('group_id', groupId);
-
-    if (!balances) return [];
-
-    let netBalances = {};
-
-    balances.forEach((b) => {
-      let key = [b.user_id, b.owes_to].sort().join('-');
-
-      if (!netBalances[key]) {
-        netBalances[key] = 0;
-      }
-
-      if (b.user_id < b.owes_to) {
-        netBalances[key] += b.amount;
-      } else {
-        netBalances[key] -= b.amount;
-      }
-    });
-
-    return Object.entries(netBalances).map(([key, amount]) => {
-      const [user1, user2] = key.split('-');
-      return { user1, user2, amount };
-    });
-  }
-
-  async simplifyBalances(groupId: string) {
-    const { data: balances } = await this.supabase
-      .getClient()
-      .from('group_balances')
-      .select('*')
-      .eq('group_id', groupId);
-
-    if (!balances) return [];
-
-    for (let i = 0; i < balances.length; i++) {
-      for (let j = i + 1; j < balances.length; j++) {
-        if (
-          balances[i].user_id === balances[j].owes_to &&
-          balances[i].owes_to === balances[j].user_id
-        ) {
-          const newBalance = balances[i].amount - balances[j].amount;
-
-          if (newBalance > 0) {
-            await this.supabase
-              .getClient()
-              .from('group_balances')
-              .update({ amount: newBalance })
-              .eq('id', balances[i].id);
-            await this.supabase
-              .getClient()
-              .from('group_balances')
-              .delete()
-              .eq('id', balances[j].id);
-          }
-        }
-      }
-    }
-    return { message: 'Bilanci semplificati con successo' };
-  }
-
-  async updateExpenseStatus(expenseId: string) {
-    const { data: participants } = await this.supabase
-      .getClient()
-      .from('expense_participants')
-      .select('settled')
-      .eq('expense_id', expenseId);
-
-    if (!participants || participants.length === 0) {
-      return; // Nessun partecipante, non serve aggiornare lo stato
-    }
-
-    if (participants.every((p) => p.settled)) {
-      await this.supabase
-        .getClient()
-        .from('expenses')
-        .update({ status: 'paid', updated_at: new Date().toISOString() })
-        .eq('id', expenseId);
-    }
-  }
-
-  async getBalances(groupId: string, userId: string) {
-    // Controlla se l'utente è membro del gruppo
-    const { data: membership } = await this.supabase
-      .getClient()
-      .from('group_members')
-      .select('id')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!membership) {
-      throw new ForbiddenException('Non fai parte di questo gruppo');
-    }
-
-    // Recupera il bilancio di tutti i membri del gruppo
-    const { data, error } = await this.supabase
-      .getClient()
-      .from('group_balances')
-      .select('user_id, owes_to, amount')
-      .eq('group_id', groupId);
-
-    if (error) throw new Error(error.message);
+    await this.recalculateBalances(createExpenseDto.group_id);
     return data;
   }
 
-  async findAll(groupId: string, userId: string) {
-    // Controlla se l'utente è membro del gruppo
-    const { data: membership } = await this.supabase
-      .getClient()
-      .from('group_members')
-      .select('id')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!membership)
-      throw new ForbiddenException('Non fai parte di questo gruppo');
-
-    // Recupera le spese del gruppo
-    const { data, error } = await this.supabase
+  async getExpensesByGroup(groupId: string) {
+    const { data, error } = await this.supabaseService
       .getClient()
       .from('expenses')
       .select('*')
       .eq('group_id', groupId);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
+
     return data;
   }
 
-  async settleExpense(expenseId: string, userId: string, requesterId: string) {
-    // Controlla se l'utente sta saldando la propria parte
-    const { data } = await this.supabase
-      .getClient()
-      .from('expense_participants')
-      .select('id')
-      .eq('expense_id', expenseId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!data) throw new ForbiddenException('Non sei assegnato a questa spesa');
-
-    await this.supabase
-      .getClient()
-      .from('expense_participants')
-      .update({ settled: true, settled_at: new Date().toISOString() })
-      .eq('expense_id', expenseId)
-      .eq('user_id', userId);
-
-    return { message: 'Spesa saldata con successo' };
-  }
-
-  async remove(expenseId: string, userId: string) {
-    // Controlla se l'utente ha creato la spesa
-    const { data } = await this.supabase
+  async getExpenseById(expenseId: string) {
+    const { data, error } = await this.supabaseService
       .getClient()
       .from('expenses')
-      .select('paid_by')
+      .select('*')
       .eq('id', expenseId)
       .single();
 
-    if (!data || data.paid_by !== userId) {
-      throw new ForbiddenException(
-        'Solo chi ha registrato la spesa può eliminarla',
-      );
+    if (error) {
+      throw new Error(error.message);
     }
 
-    await this.supabase
+    return data;
+  }
+
+  async updateExpense(
+    expenseId: string,
+    updateData: Partial<CreateExpenseDto>,
+  ) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('expenses')
+      .update(updateData)
+      .eq('id', expenseId)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  async deleteExpense(expenseId: string, groupId: string) {
+    const { error } = await this.supabaseService
       .getClient()
       .from('expenses')
       .delete()
       .eq('id', expenseId);
-    return { message: 'Spesa eliminata con successo' };
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await this.recalculateBalances(groupId);
   }
 
-  async updateBalance(
-    groupId: string,
-    userId: string,
-    owesTo: string,
-    amount: number,
-  ) {
-    const { data: existingBalance } = await this.supabase
+  async settleExpense(settleExpenseDto: SettleExpenseDto) {
+    const { data, error } = await this.supabaseService
       .getClient()
-      .from('group_balances')
-      .select('id, amount')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .eq('owes_to', owesTo)
-      .single();
+      .from('expense_participants')
+      .insert(settleExpenseDto);
 
-    if (existingBalance) {
-      let newAmount = existingBalance.amount + amount;
+    if (error) {
+      throw new Error(error.message);
+    }
 
-      if (newAmount === 0) {
-        // Se il bilancio è 0, eliminiamo la riga
-        await this.supabase
-          .getClient()
-          .from('group_balances')
-          .delete()
-          .eq('id', existingBalance.id);
-      } else {
-        // Aggiorniamo l'importo
-        await this.supabase
-          .getClient()
-          .from('group_balances')
-          .update({ amount: newAmount })
-          .eq('id', existingBalance.id);
-      }
-    } else {
-      // Creiamo una nuova riga solo se il debito non è zero
-      if (amount !== 0) {
-        await this.supabase
-          .getClient()
-          .from('group_balances')
-          .insert([
-            { group_id: groupId, user_id: userId, owes_to: owesTo, amount },
-          ]);
-      }
+    return data;
+  }
+
+  async getExpenseParticipants(expenseId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('expense_participants')
+      .select('*')
+      .eq('expense_id', expenseId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  async recalculateBalances(groupId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: expenses, error: expensesError } = await supabase
+      .from('expenses')
+      .select('user_id, amount')
+      .eq('group_id', groupId);
+
+    if (expensesError) {
+      throw new Error(expensesError.message);
+    }
+
+    const { data: members, error: membersError } = await supabase
+      .from('group_members')
+      .select('user_id')
+      .eq('group_id', groupId);
+
+    if (membersError) {
+      throw new Error(membersError.message);
+    }
+
+    const balances: { [userId: string]: number } = {};
+    members.forEach((member) => (balances[member.user_id] = 0));
+
+    expenses.forEach((expense) => {
+      const share = expense.amount / members.length;
+      balances[expense.user_id] += expense.amount - share;
+      members.forEach((member) => {
+        if (member.user_id !== expense.user_id) {
+          balances[member.user_id] -= share;
+        }
+      });
+    });
+
+    for (const [userId, balance] of Object.entries(balances)) {
+      await supabase
+        .from('group_members')
+        .update({ balance })
+        .eq('group_id', groupId)
+        .eq('user_id', userId);
     }
   }
 }

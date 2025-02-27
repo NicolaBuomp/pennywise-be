@@ -99,7 +99,7 @@ Authentication is handled by Supabase. The API validates Supabase JWT tokens.
 ## Setup Instructions
 
 ### Prerequisites
-- Node.js (v14 or later)
+- Node.js
 - npm or yarn
 - Supabase account and project
 

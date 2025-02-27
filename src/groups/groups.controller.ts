@@ -1,14 +1,8 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Delete,
-  Req,
-  Patch,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Request } from '@nestjs/common';
 import { GroupsService } from './groups.service';
+import { CreateGroupDto } from './dto/create-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
 import { CreateInviteDto } from './dto/create-invite.dto';
 
 @Controller('groups')
@@ -16,84 +10,56 @@ export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
 
   @Post()
-  create(@Req() req, @Body() createGroupDto: { name: string }) {
-    return this.groupsService.create(createGroupDto.name, req.user.id);
+  async createGroup(@Request() req: { user: { id: string } }, @Body() createGroupDto: CreateGroupDto) {
+    return this.groupsService.createGroup(req.user.id, createGroupDto);
   }
 
   @Get()
-  findAll(@Req() req) {
-    return this.groupsService.findAll(req.user.id);
+  async getUserGroups(@Request() req: { user: { id: string } }) {
+    return this.groupsService.getUserGroups(req.user.id);
   }
 
-  @Delete(':id')
-  remove(@Req() req, @Param('id') id: string) {
-    return this.groupsService.remove(id, req.user.id);
+  @Get(':groupId/invites')
+  async getGroupInvites(@Param('groupId') groupId: string) {
+    return this.groupsService.getGroupInvites(groupId);
   }
 
-  // 🔹 Aggiungere un membro al gruppo
-  @Post(':groupId/members')
-  addMember(
-    @Req() req,
-    @Param('groupId') groupId: string,
-    @Body() body: { userId: string; role?: string },
-  ) {
-    return this.groupsService.addMember(
-      groupId,
-      body.userId,
-      body.role || 'member',
-      req.user.id,
-    );
+  @Put(':groupId')
+  async updateGroup(@Param('groupId') groupId: string, @Body() updateGroupDto: UpdateGroupDto) {
+    return this.groupsService.updateGroup(groupId, updateGroupDto);
   }
 
-  // 🔹 Rimuovere un membro dal gruppo
+  @Delete(':groupId')
+  async deleteGroup(@Param('groupId') groupId: string) {
+    return this.groupsService.deleteGroup(groupId);
+  }
+
+  @Post('invite')
+  async inviteUserToGroup(@Body() createInviteDto: CreateInviteDto) {
+    return this.groupsService.inviteUserToGroup(createInviteDto);
+  }
+
+  @Post('join/:inviteToken')
+  async joinGroupWithToken(@Request() req: { user: { id: string } }, @Param('inviteToken') inviteToken: string) {
+    return this.groupsService.joinGroupWithToken(inviteToken, req.user.id);
+  }
+
+  @Put('role')
+  async updateUserRole(@Body() updateRoleDto: UpdateRoleDto) {
+    return this.groupsService.updateUserRole(updateRoleDto);
+  }
+
   @Delete(':groupId/members/:userId')
-  removeMember(
-    @Req() req,
+  async deleteGroupMember(
+    @Request() req: { user: { id: string } },
     @Param('groupId') groupId: string,
-    @Param('userId') userId: string,
+    @Param('userId') userId: string
   ) {
-    return this.groupsService.removeMember(groupId, userId, req.user.id);
+    return this.groupsService.deleteGroupMember(groupId, userId, req.user.id);
   }
 
-  // 🔹 Recuperare tutti i membri di un gruppo
-  @Get(':groupId/members')
-  getMembers(@Req() req, @Param('groupId') groupId: string) {
-    return this.groupsService.getMembers(groupId, req.user.id);
-  }
-
-  // 🔹 Modificare il ruolo di un membro
-  @Patch(':groupId/members/:userId')
-  updateRole(
-    @Req() req,
-    @Param('groupId') groupId: string,
-    @Param('userId') userId: string,
-    @Body() body: { role: string },
-  ) {
-    return this.groupsService.updateRole(
-      groupId,
-      userId,
-      body.role,
-      req.user.id,
-    );
-  }
-
-  @Post(':groupId/invite')
-  createInvite(@Req() req, @Body() createInviteDto: CreateInviteDto) {
-    return this.groupsService.createInvite(req.user.id, createInviteDto);
-  }
-
-  @Post('invite/accept/:inviteId')
-  acceptInvite(@Req() req, @Param('inviteId') inviteId: string) {
-    return this.groupsService.acceptInvite(inviteId, req.user.id);
-  }
-
-  @Get('my-invites')
-  getSentInvites(@Req() req) {
-    return this.groupsService.getSentInvites(req.user.id);
-  }
-
-  @Post('clean-expired-invites')
-  cleanExpiredInvites() {
-    return this.groupsService.expireOldInvites();
+  @Delete('invite/:inviteId')
+  async deleteGroupInvite(@Param('inviteId') inviteId: string) {
+    return this.groupsService.deleteGroupInvite(inviteId);
   }
 }

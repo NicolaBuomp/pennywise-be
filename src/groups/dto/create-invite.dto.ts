@@ -1,14 +1,12 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsUUID, IsEmail } from 'class-validator';
 
 export class CreateInviteDto {
-  @IsNotEmpty()
   @IsUUID()
-  groupId: string;
+  group_id: string;
 
-  @IsNotEmpty()
   @IsEmail()
-  inviteeEmail: string;
+  email: string;
 
-  @IsOptional()
-  role?: 'admin' | 'member' | 'viewer' = 'member';
+  @IsString()
+  role: 'admin' | 'member' | 'viewer';
 }

@@ -1,48 +1,47 @@
-// logger/logger.service.ts
-import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
+import { Injectable, LoggerService, LogLevel } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
-export class LoggerService implements NestLoggerService {
-  constructor(private context?: string) {}
+export class CustomLoggerService implements LoggerService {
+  private logLevels: LogLevel[] = ['log', 'error', 'warn', 'debug', 'verbose'];
+  private logFilePath = path.join(__dirname, '../../logs/app.log');
 
-  setContext(context: string) {
-    this.context = context;
-  }
-
-  log(message: any, context?: string) {
-    console.log(
-      `[${this.getTimestamp()}] [${context || this.context}] ${message}`,
-    );
-  }
-
-  error(message: any, trace?: string, context?: string) {
-    console.error(
-      `[${this.getTimestamp()}] [${context || this.context}] ERROR: ${message}`,
-    );
-    if (trace) {
-      console.error(trace);
+  constructor() {
+    // Ensure logs directory exists
+    if (!fs.existsSync(path.dirname(this.logFilePath))) {
+      fs.mkdirSync(path.dirname(this.logFilePath), { recursive: true });
     }
   }
 
-  warn(message: any, context?: string) {
-    console.warn(
-      `[${this.getTimestamp()}] [${context || this.context}] WARN: ${message}`,
-    );
+  private writeLog(level: string, message: string) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [${level.toUpperCase()}]: ${message}\n`;
+
+    // Log to console
+    console[level](logMessage);
+
+    // Append to file
+    fs.appendFileSync(this.logFilePath, logMessage);
   }
 
-  debug(message: any, context?: string) {
-    console.debug(
-      `[${this.getTimestamp()}] [${context || this.context}] DEBUG: ${message}`,
-    );
+  log(message: string) {
+    this.writeLog('log', message);
   }
 
-  verbose(message: any, context?: string) {
-    console.log(
-      `[${this.getTimestamp()}] [${context || this.context}] VERBOSE: ${message}`,
-    );
+  error(message: string, trace?: string) {
+    this.writeLog('error', `${message}${trace ? `\nTrace: ${trace}` : ''}`);
   }
 
-  private getTimestamp() {
-    return new Date().toISOString();
+  warn(message: string) {
+    this.writeLog('warn', message);
+  }
+
+  debug(message: string) {
+    this.writeLog('debug', message);
+  }
+
+  verbose(message: string) {
+    this.writeLog('verbose', message);
   }
 }

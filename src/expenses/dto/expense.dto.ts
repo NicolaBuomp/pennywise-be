@@ -1,52 +1,51 @@
-import {
-  IsUUID,
-  IsNumber,
-  IsString,
-  IsOptional,
-  ValidateNested,
-  ArrayMinSize,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsNumber, IsUUID, IsOptional } from 'class-validator';
 
-export class CreateExpenseParticipantDto {
+export class ExpenseDto {
   @IsUUID()
-  userId: string;
+  id: string;
+
+  @IsUUID()
+  group_id: string;
+
+  @IsUUID()
+  user_id: string;
+
+  @IsString()
+  description: string;
 
   @IsNumber()
   amount: number;
+
+  @IsString()
+  currency: string = 'EUR';
+
+  @IsOptional()
+  @IsString()
+  created_at?: string;
+
+  @IsOptional()
+  @IsString()
+  updated_at?: string;
 }
 
 export class CreateExpenseDto {
   @IsUUID()
-  groupId: string;
+  group_id: string;
+
+  @IsString()
+  description: string;
 
   @IsNumber()
   amount: number;
 
   @IsString()
-  currency: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsUUID()
-  paidBy: string;
-
-  @IsOptional()
-  @IsString()
-  category?: string;
-
-  @IsString()
-  splitMethod: 'equal' | 'custom';
-
-  @ValidateNested({ each: true })
-  @Type(() => CreateExpenseParticipantDto)
-  @ArrayMinSize(1)
-  participants: CreateExpenseParticipantDto[];
+  currency: string = 'EUR';
 }
 
 export class SettleExpenseDto {
   @IsUUID()
-  userId: string;
+  expense_id: string;
+
+  @IsUUID()
+  payer_id: string;
 }

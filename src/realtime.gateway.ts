@@ -1,61 +1,52 @@
+import { Logger } from '@nestjs/common';
 import {
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
+  MessageBody,
+  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { SupabaseService } from './supabase/supabase.service';
 
-@WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
-})
-export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+@WebSocketGateway({ cors: true })
+export class RealtimeGateway {
   @WebSocketServer()
   server: Server;
 
-  private logger = new Logger('RealtimeGateway');
+  private readonly logger = new Logger(RealtimeGateway.name);
 
-  handleConnection(client: Socket) {
-    this.logger.log(`Client connected: ${client.id}`);
+  constructor(private readonly supabaseService: SupabaseService) {
+    this.initializeRealtime();
   }
 
-  handleDisconnect(client: Socket) {
-    this.logger.log(`Client disconnected: ${client.id}`);
+  private initializeRealtime() {
+    const supabase = this.supabaseService.getClient();
+
+    supabase
+      .channel('realtime-updates')
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        this.logger.log(`Realtime event received: ${JSON.stringify(payload)}`);
+        this.server.emit('realtime-update', payload);
+      })
+      .subscribe();
   }
 
-  @SubscribeMessage('joinGroup')
-  handleJoinGroup(client: Socket, groupId: string) {
-    client.join(`group-${groupId}`);
-    return { event: 'joinedGroup', data: groupId };
-  }
-
-  @SubscribeMessage('leaveGroup')
-  handleLeaveGroup(client: Socket, groupId: string) {
-    client.leave(`group-${groupId}`);
-    return { event: 'leftGroup', data: groupId };
-  }
-
-  @SubscribeMessage('updateShoppingList')
-  handleShoppingListUpdate(
-    client: Socket,
-    data: { groupId: string; listId: string; action: string },
+  @SubscribeMessage('subscribe')
+  handleSubscribe(
+    @MessageBody() data: { channel: string },
+    @ConnectedSocket() client: Socket,
   ) {
-    client.to(`group-${data.groupId}`).emit('shoppingListUpdated', data);
-    return { event: 'shoppingListUpdated', data };
+    client.join(data.channel);
+    this.logger.log(`Client ${client.id} subscribed to ${data.channel}`);
   }
 
-  @SubscribeMessage('updateExpense')
-  handleExpenseUpdate(
-    client: Socket,
-    data: { groupId: string; expenseId: string; action: string },
+  @SubscribeMessage('unsubscribe')
+  handleUnsubscribe(
+    @MessageBody() data: { channel: string },
+    @ConnectedSocket() client: Socket,
   ) {
-    client.to(`group-${data.groupId}`).emit('expenseUpdated', data);
-    return { event: 'expenseUpdated', data };
+    client.leave(data.channel);
+    this.logger.log(`Client ${client.id} unsubscribed from ${data.channel}`);
   }
 }

@@ -1,8 +1,12 @@
-// groups/dto/update-role.dto.ts
-import { IsString, IsIn } from 'class-validator';
+import { IsString, IsUUID } from 'class-validator';
 
 export class UpdateRoleDto {
+  @IsUUID()
+  group_id: string;
+
+  @IsUUID()
+  user_id: string;
+
   @IsString()
-  @IsIn(['admin', 'member', 'viewer'])
-  role: string;
+  role: 'admin' | 'member' | 'viewer';
 }
