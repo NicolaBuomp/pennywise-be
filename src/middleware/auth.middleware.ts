@@ -16,12 +16,11 @@ export class AuthMiddleware implements NestMiddleware {
   private readonly logger = new Logger(AuthMiddleware.name);
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly supabaseService: SupabaseService,
-    private readonly profilesService: ProfilesService,
+      private readonly configService: ConfigService,
+      private readonly supabaseService: SupabaseService,
+      private readonly profilesService: ProfilesService,
   ) {
-    this.JWT_SECRET =
-      this.configService.get<string>('SUPABASE_JWT_SECRET') || '';
+    this.JWT_SECRET = this.configService.get<string>('SUPABASE_JWT_SECRET') || '';
   }
 
   // Metodo per definire le rotte pubbliche
@@ -30,7 +29,8 @@ export class AuthMiddleware implements NestMiddleware {
       '/api/auth/login',
       '/api/auth/register',
       '/api/auth/reset-password',
-      '/public',
+      '/api/public',
+      '/api/auth-test', // Route di test per auth
     ];
     return publicRoutes.some((route) => path.startsWith(route));
   }
@@ -48,65 +48,60 @@ export class AuthMiddleware implements NestMiddleware {
         throw new UnauthorizedException('Missing Authorization header');
       }
 
-      const token = authHeader.split(' ')[1];
+      // Verifica formato del token
+      const parts = authHeader.split(' ');
+      if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        throw new UnauthorizedException('Invalid authorization header format');
+      }
+
+      const token = parts[1];
       if (!token) {
-        if (isPublicRoute) {
-          return next();
-        }
         throw new UnauthorizedException('Invalid token format');
       }
 
       try {
-        // Verifica il token JWT
-        const decoded = jwt.verify(token, this.JWT_SECRET, {
-          algorithms: ['HS256'],
-        }) as { [key: string]: any }; // Aggiunta di una tipizzazione che permette lo spread
-
-        // Verifica l'utente su Supabase
-        const {
-          data: { user },
-          error,
-        } = await this.supabaseService.getClient().auth.getUser(token);
+        // Verifica il token tramite Supabase
+        const { data: { user }, error } = await this.supabaseService.getClient().auth.getUser(token);
 
         if (error || !user) {
-          throw new UnauthorizedException('User not found');
+          if (isPublicRoute) {
+            return next();
+          }
+          throw new UnauthorizedException('Invalid or expired token');
         }
 
         // Assicura l'esistenza del profilo
         const profile = await this.profilesService.ensureProfileExists(
-          user.id,
-          user,
+            user.id,
+            user,
         );
 
         // Aggiorna l'ultima attività in background
         this.profilesService.updateLastActive(user.id).catch((err) => {
           this.logger.warn(
-            `Errore nell'aggiornamento di lastActive: ${err.message}`,
+              `Errore nell'aggiornamento di lastActive: ${err.message}`,
           );
         });
 
-        // Arricchisci l'oggetto utente
+        // Arricchisci l'oggetto utente nella richiesta
         req['user'] = {
           id: user.id,
           email: user.email,
           profile: profile,
-          roles: [], // Puoi aggiungere la logica per i ruoli qui
-          ...decoded,
+          roles: [],
         };
 
         next();
-      } catch (jwtError) {
-        // Gestione degli errori di JWT
+      } catch (tokenError) {
+        // Gestione degli errori di token
         if (isPublicRoute) {
           return next();
         }
-
-        this.logger.error('JWT Verification Error', jwtError);
         throw new UnauthorizedException('Invalid or expired token');
       }
     } catch (error) {
       // Gestione degli errori globale
-      this.logger.error('Authentication Middleware Error', error);
+      this.logger.error(`Authentication error: ${error.message}`);
 
       if (error instanceof UnauthorizedException) {
         throw error;

@@ -16,16 +16,16 @@ export class ProfilesService {
   async getProfile(userId: string): Promise<ProfileDto> {
     try {
       const { data, error } = await this.supabase
-        .getClient()
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+          .getClient()
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
           throw new NotFoundException(
-            `Profilo per l'utente ${userId} non trovato`,
+              `Profilo per l'utente ${userId} non trovato`,
           );
         }
         throw error;
@@ -33,7 +33,9 @@ export class ProfilesService {
 
       return this.mapToProfileDto(data);
     } catch (error) {
-      this.logger.error(`Errore nel recupero del profilo: ${error.message}`);
+      this.logger.error(
+          `Errore nel recupero del profilo: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -42,20 +44,20 @@ export class ProfilesService {
    * Aggiorna il profilo utente
    */
   async updateProfile(
-    userId: string,
-    updateProfileDto: UpdateProfileDto,
+      userId: string,
+      updateProfileDto: UpdateProfileDto,
   ): Promise<ProfileDto> {
     try {
       const profileData = this.mapToDbRecord(updateProfileDto);
       profileData.updated_at = new Date().toISOString();
 
       const { data, error } = await this.supabase
-        .getClient()
-        .from('profiles')
-        .update(profileData)
-        .eq('id', userId)
-        .select()
-        .single();
+          .getClient()
+          .from('profiles')
+          .update(profileData)
+          .eq('id', userId)
+          .select()
+          .single();
 
       if (error) {
         throw error;
@@ -64,7 +66,7 @@ export class ProfilesService {
       return this.mapToProfileDto(data);
     } catch (error) {
       this.logger.error(
-        `Errore nell'aggiornamento del profilo: ${error.message}`,
+          `Errore nell'aggiornamento del profilo: ${error.message}`,
       );
       throw error;
     }
@@ -74,17 +76,17 @@ export class ProfilesService {
    * Assicura che il profilo utente esista, creandolo se necessario
    */
   async ensureProfileExists(
-    userId: string,
-    userData: any,
+      userId: string,
+      userData: any,
   ): Promise<ProfileDto> {
     try {
       // Verifica se il profilo esiste già
       const { data, error } = await this.supabase
-        .getClient()
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+          .getClient()
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
       if (!error && data) {
         // Il profilo esiste già, lo ritorniamo
@@ -96,28 +98,31 @@ export class ProfilesService {
       const email = userData?.email || '';
 
       const displayName =
-        metadata.full_name ||
-        `${metadata.first_name || ''} ${metadata.last_name || ''}`.trim() ||
-        email.split('@')[0] ||
-        'Utente';
+          metadata.full_name ||
+          `${metadata.name || ''} ${metadata.surname || ''}`.trim() ||
+          email.split('@')[0] ||
+          'Utente';
 
       const newProfile = {
         id: userId,
-        first_name: metadata.first_name || '',
-        last_name: metadata.last_name || '',
+        name: metadata.name || '',
+        surname: metadata.surname || '',
         display_name: displayName,
         phone_number: metadata.phone || '',
         avatar_url: metadata.avatar_url || metadata.picture || '',
+        language: 'it',
+        currency: 'EUR',
+        theme: 'light',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
       const { data: createdProfile, error: createError } = await this.supabase
-        .getClient()
-        .from('profiles')
-        .upsert(newProfile)
-        .select()
-        .single();
+          .getClient()
+          .from('profiles')
+          .upsert(newProfile)
+          .select()
+          .single();
 
       if (createError) {
         throw createError;
@@ -126,7 +131,7 @@ export class ProfilesService {
       return this.mapToProfileDto(createdProfile);
     } catch (error) {
       this.logger.error(
-        `Errore nella creazione/verifica del profilo: ${error.message}`,
+          `Errore nella creazione/verifica del profilo: ${error.message}`,
       );
       throw error;
     }
@@ -138,14 +143,14 @@ export class ProfilesService {
   async updateLastActive(userId: string): Promise<void> {
     try {
       await this.supabase
-        .getClient()
-        .from('profiles')
-        .update({ last_active: new Date().toISOString() })
-        .eq('id', userId);
+          .getClient()
+          .from('profiles')
+          .update({ last_active: new Date().toISOString() })
+          .eq('id', userId);
     } catch (error) {
       // Logghiamo l'errore ma non lo propaghiamo per non bloccare altre operazioni
       this.logger.warn(
-        `Errore nell'aggiornamento di lastActive: ${error.message}`,
+          `Errore nell'aggiornamento di lastActive: ${error.message}`,
       );
     }
   }
@@ -154,21 +159,21 @@ export class ProfilesService {
    * Carica un avatar per l'utente
    */
   async uploadAvatar(
-    userId: string,
-    fileBuffer: Buffer,
-    fileExt: string,
+      userId: string,
+      fileBuffer: Buffer,
+      fileExt: string,
   ): Promise<string> {
     try {
       const timestamp = Date.now();
       const filePath = `${userId}/${timestamp}.${fileExt}`;
 
       const { error } = await this.supabase
-        .getClient()
-        .storage.from('user-avatars')
-        .upload(filePath, fileBuffer, {
-          contentType: `image/${fileExt}`,
-          upsert: true,
-        });
+          .getClient()
+          .storage.from('user-avatars')
+          .upload(filePath, fileBuffer, {
+            contentType: `image/${fileExt}`,
+            upsert: true,
+          });
 
       if (error) {
         throw error;
@@ -176,16 +181,18 @@ export class ProfilesService {
 
       // Ottieni l'URL pubblico
       const { data: urlData } = this.supabase
-        .getClient()
-        .storage.from('user-avatars')
-        .getPublicUrl(filePath);
+          .getClient()
+          .storage.from('user-avatars')
+          .getPublicUrl(filePath);
 
       // Aggiorna il profilo con il nuovo URL dell'avatar
       await this.updateProfile(userId, { avatarUrl: urlData.publicUrl });
 
       return urlData.publicUrl;
     } catch (error) {
-      this.logger.error(`Errore nel caricamento dell'avatar: ${error.message}`);
+      this.logger.error(
+          `Errore nel caricamento dell'avatar: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -196,14 +203,14 @@ export class ProfilesService {
   private mapToProfileDto(dbRecord: any): ProfileDto {
     return {
       id: dbRecord.id,
-      firstName: dbRecord.first_name,
-      lastName: dbRecord.last_name,
+      firstName: dbRecord.name,
+      lastName: dbRecord.surname,
       displayName: dbRecord.display_name,
       phoneNumber: dbRecord.phone_number,
       avatarUrl: dbRecord.avatar_url,
-      language: dbRecord.language,
-      currency: dbRecord.currency,
-      theme: dbRecord.theme,
+      language: dbRecord.language || 'it',
+      currency: dbRecord.currency || 'EUR',
+      theme: dbRecord.theme || 'light',
       lastActive: dbRecord.last_active ? new Date(dbRecord.last_active) : null,
       createdAt: new Date(dbRecord.created_at),
       updatedAt: new Date(dbRecord.updated_at),
@@ -216,8 +223,8 @@ export class ProfilesService {
   private mapToDbRecord(dto: UpdateProfileDto): any {
     const record: any = {};
 
-    if (dto.firstName !== undefined) record.first_name = dto.firstName;
-    if (dto.lastName !== undefined) record.last_name = dto.lastName;
+    if (dto.firstName !== undefined) record.name = dto.firstName;
+    if (dto.lastName !== undefined) record.surname = dto.lastName;
     if (dto.displayName !== undefined) record.display_name = dto.displayName;
     if (dto.phoneNumber !== undefined) record.phone_number = dto.phoneNumber;
     if (dto.avatarUrl !== undefined) record.avatar_url = dto.avatarUrl;

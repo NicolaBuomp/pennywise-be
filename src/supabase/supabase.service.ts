@@ -10,16 +10,21 @@ export class SupabaseService {
   constructor(private configService: ConfigService) {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseKey = this.configService.get<string>(
-      'SUPABASE_SERVICE_ROLE_KEY',
+        'SUPABASE_SERVICE_ROLE_KEY',
     );
-    if (supabaseUrl != null) {
-      if (supabaseKey != null) {
-        this.supabase = createClient(supabaseUrl, supabaseKey);
-      }
+
+    if (!supabaseUrl || !supabaseKey) {
+      this.logger.error('Mancano le variabili d\'ambiente Supabase necessarie');
+    } else {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
     }
   }
 
   getClient(): SupabaseClient {
+    if (!this.supabase) {
+      this.logger.error('Client Supabase non inizializzato');
+      throw new Error('Supabase client non inizializzato');
+    }
     return this.supabase;
   }
 
@@ -27,8 +32,7 @@ export class SupabaseService {
     try {
       return await query;
     } catch (error) {
-      this.logger.error(`Errore nella query: ${JSON.stringify(query)}`);
-      this.logger.error(`Dettagli: ${error.message}`);
+      this.logger.error(`Errore nella query: ${error.message}`);
       throw error;
     }
   }

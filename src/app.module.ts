@@ -19,7 +19,7 @@ import { ProfilesModule } from './profiles/profiles.module';
       envFilePath:
         process.env.NODE_ENV === 'production'
           ? '.env.production'
-          : '.env.development',
+          : '.env.development.local',
       isGlobal: true,
     }),
     SupabaseModule,

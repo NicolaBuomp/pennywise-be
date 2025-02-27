@@ -72,8 +72,8 @@ export class ProfilesController {
   })
   @UsePipes(new ValidationPipe({ transform: true }))
   async updateProfile(
-    @Req() req,
-    @Body() updateProfileDto: UpdateProfileDto,
+      @Req() req,
+      @Body() updateProfileDto: UpdateProfileDto,
   ): Promise<ProfileDto> {
     return this.profilesService.updateProfile(req.user.id, updateProfileDto);
   }
@@ -125,24 +125,14 @@ export class ProfilesController {
       return { error: 'Nessun file caricato' };
     }
 
-    // Opzione 1: Controllo esplicito
     const fileExt = file.originalname
-      ? file.originalname.split('.').pop()?.toLowerCase() || 'jpg'
-      : 'jpg';
-
-    // Opzione 2: Gestione più verbosa
-    let safeFileExt = 'jpg'; // Default
-    if (file.originalname) {
-      const parts = file.originalname.split('.');
-      if (parts.length > 1) {
-        safeFileExt = parts[parts.length - 1].toLowerCase();
-      }
-    }
+        ? file.originalname.split('.').pop()?.toLowerCase() || 'jpg'
+        : 'jpg';
 
     const avatarUrl = await this.profilesService.uploadAvatar(
-      req.user.id,
-      file.buffer,
-      safeFileExt, // Usa l'estensione sicura
+        req.user.id,
+        file.buffer,
+        fileExt,
     );
 
     return { avatarUrl };
