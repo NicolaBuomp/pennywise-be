@@ -9,27 +9,18 @@ import {
   Req,
 } from '@nestjs/common';
 import { ShoppingItemsService } from './shopping-items.service';
+import { CreateItemDto, UpdateItemDto } from './dto/create-item.dto';
 
 @Controller('shopping-items')
 export class ShoppingItemsController {
   constructor(private readonly shoppingItemsService: ShoppingItemsService) {}
 
   @Post()
-  create(
-    @Req() req,
-    @Body()
-    body: {
-      listId: string;
-      name: string;
-      quantity?: number;
-      unit?: string | null;
-    },
-  ) {
+  create(@Req() req, @Body() createItemDto: CreateItemDto) {
     return this.shoppingItemsService.create(
-      body.listId,
-      body.name,
-      body.quantity ?? 1,
-      body.unit ?? 'pezzi',
+      createItemDto.shopping_list_id,
+      createItemDto.name,
+      createItemDto.quantity ?? 1,
       req.user.id,
     );
   }
@@ -43,15 +34,9 @@ export class ShoppingItemsController {
   update(
     @Req() req,
     @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      quantity?: number;
-      unit?: string;
-      completed?: boolean;
-    },
+    @Body() updateItemDto: UpdateItemDto,
   ) {
-    return this.shoppingItemsService.update(id, body, req.user.id);
+    return this.shoppingItemsService.update(id, updateItemDto, req.user.id);
   }
 
   @Delete(':id')

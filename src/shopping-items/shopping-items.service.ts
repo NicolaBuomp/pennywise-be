@@ -1,4 +1,8 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
@@ -9,108 +13,146 @@ export class ShoppingItemsService {
     listId: string,
     name: string,
     quantity: number = 1,
-    unit: string = 'pezzi',
     userId: string,
   ) {
-    // Controlla se l'utente è membro del gruppo
-    const { data: membership } = await this.supabase
+    const { data: membership, error: membershipError } = await this.supabase
       .getClient()
       .from('shopping_lists')
       .select('group_id')
       .eq('id', listId)
       .single();
 
-    if (!membership) throw new ForbiddenException('Lista non trovata');
+    if (membershipError || !membership)
+      throw new ForbiddenException('Lista non trovata');
 
-    // Aggiunge l'elemento alla lista
     const { data, error } = await this.supabase
       .getClient()
-      .from('shopping_items')
-      .insert([{ list_id: listId, name, quantity, unit, created_by: userId }])
+      .from('shopping_list_items')
+      .insert([
+        {
+          shopping_list_id: listId,
+          name,
+          quantity,
+          created_by: userId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error)
+      throw new InternalServerErrorException(
+        `Errore nella creazione dell'elemento`,
+      );
     return data;
   }
 
   async findAll(listId: string, userId: string) {
-    // Controlla se l'utente è membro del gruppo della lista
-    const { data: membership } = await this.supabase
+    const { data: membership, error: membershipError } = await this.supabase
       .getClient()
       .from('shopping_lists')
       .select('group_id')
       .eq('id', listId)
       .single();
 
-    if (!membership) throw new ForbiddenException('Lista non trovata');
+    if (membershipError || !membership)
+      throw new ForbiddenException('Lista non trovata');
 
-    // Recupera gli elementi della lista
     const { data, error } = await this.supabase
       .getClient()
-      .from('shopping_items')
+      .from('shopping_list_items')
       .select('*')
-      .eq('list_id', listId);
+      .eq('shopping_list_id', listId);
 
-    if (error) throw new Error(error.message);
+    if (error)
+      throw new InternalServerErrorException(
+        'Errore nel recupero degli elementi',
+      );
     return data;
   }
 
   async update(
     itemId: string,
-    updateData: {
-      name?: string;
-      quantity?: number;
-      unit?: string;
-      completed?: boolean;
-    },
+    updateData: { name?: string; quantity?: number; completed?: boolean },
     userId: string,
   ) {
-    // Controlla se l'utente è il creatore dell'elemento
-    const { data: item } = await this.supabase
+    // Controlliamo se l'utente ha accesso alla lista dell'elemento
+    const { data: item, error } = await this.supabase
       .getClient()
-      .from('shopping_items')
-      .select('created_by, completed')
+      .from('shopping_list_items')
+      .select('shopping_list_id, created_by, completed')
       .eq('id', itemId)
       .single();
 
-    if (!item) throw new ForbiddenException('Elemento non trovato');
+    if (error || !item) throw new ForbiddenException('Elemento non trovato');
+
+    // Controlliamo se l'utente ha accesso alla lista
+    const { data: list } = await this.supabase
+      .getClient()
+      .from('shopping_lists')
+      .select('group_id')
+      .eq('id', item.shopping_list_id)
+      .single();
+
+    if (!list) {
+      throw new ForbiddenException('Lista non trovata');
+    }
+
+    const { data: membership } = await this.supabase
+      .getClient()
+      .from('group_members')
+      .select('id')
+      .eq('group_id', list.group_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (!membership)
+      throw new ForbiddenException('Non hai accesso a questa lista');
 
     if (updateData.completed && !item.completed) {
-      updateData['completed_by'] = userId;
+      updateData['assigned_to'] = userId;
       updateData['completed_at'] = new Date().toISOString();
     }
 
-    // Aggiorna l'elemento
-    const { data, error } = await this.supabase
+    // Aggiorniamo l'elemento
+    const { error: updateError } = await this.supabase
       .getClient()
-      .from('shopping_items')
+      .from('shopping_list_items')
       .update(updateData)
       .eq('id', itemId);
 
-    if (error) throw new Error(error.message);
-    return data;
+    if (updateError)
+      throw new InternalServerErrorException(
+        "Errore nell'aggiornamento dell'elemento",
+      );
+
+    return { message: 'Elemento aggiornato con successo' };
   }
 
   async remove(itemId: string, userId: string) {
-    // Controlla se l'utente è il creatore dell'elemento
-    const { data: item } = await this.supabase
+    const { data: item, error } = await this.supabase
       .getClient()
-      .from('shopping_items')
+      .from('shopping_list_items')
       .select('created_by')
       .eq('id', itemId)
       .single();
 
-    if (!item || item.created_by !== userId) {
+    if (error || !item || item.created_by !== userId) {
       throw new ForbiddenException(
         'Solo il creatore può eliminare questo elemento',
       );
     }
 
-    await this.supabase
+    const { error: deleteError } = await this.supabase
       .getClient()
-      .from('shopping_items')
+      .from('shopping_list_items')
       .delete()
       .eq('id', itemId);
+
+    if (deleteError)
+      throw new InternalServerErrorException(
+        `Errore nell'eliminazione dell'elemento`,
+      );
     return { message: 'Elemento eliminato con successo' };
   }
 }
