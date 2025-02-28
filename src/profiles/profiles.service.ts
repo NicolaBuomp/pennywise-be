@@ -8,6 +8,7 @@ export class ProfilesService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async getProfile(userId: string): Promise<any> {
+
     const { data, error } = await this.supabaseService
       .getClient()
       .from('profiles')
@@ -19,12 +20,13 @@ export class ProfilesService {
       throw new Error(error.message);
     }
 
+
     return data;
   }
 
   async updateProfile(
     userId: string,
-    updateProfileDto: UpdateProfileDto,
+    updateProfileDto: Partial<UpdateProfileDto>,
   ): Promise<any> {
     const { data, error } = await this.supabaseService
       .getClient()

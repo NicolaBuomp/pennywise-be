@@ -25,7 +25,7 @@ export class ProfilesController {
   @Put('me')
   async updateProfile(
     @Request() req: { user: { id: string } },
-    @Body() updateProfileDto: UpdateProfileDto,
+    @Body() updateProfileDto: Partial<UpdateProfileDto>,
   ): Promise<any> {
     return this.profilesService.updateProfile(req.user.id, updateProfileDto);
   }
