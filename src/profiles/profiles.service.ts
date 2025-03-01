@@ -8,7 +8,6 @@ export class ProfilesService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async getProfile(userId: string): Promise<any> {
-
     const { data, error } = await this.supabaseService
       .getClient()
       .from('profiles')
@@ -19,7 +18,6 @@ export class ProfilesService {
     if (error) {
       throw new Error(error.message);
     }
-
 
     return data;
   }

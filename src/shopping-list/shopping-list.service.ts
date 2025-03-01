@@ -1,4 +1,8 @@
-import { Injectable, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
@@ -24,7 +28,10 @@ export class ShoppingListService {
       .insert([{ group_id: groupId, name, created_by: userId }])
       .single();
 
-    if (error) throw new InternalServerErrorException('Errore nella creazione della lista');
+    if (error)
+      throw new InternalServerErrorException(
+        'Errore nella creazione della lista',
+      );
     return data;
   }
 
@@ -47,7 +54,8 @@ export class ShoppingListService {
       .select('*')
       .eq('group_id', groupId);
 
-    if (error) throw new InternalServerErrorException('Errore nel recupero delle liste');
+    if (error)
+      throw new InternalServerErrorException('Errore nel recupero delle liste');
     return data;
   }
 
@@ -71,7 +79,10 @@ export class ShoppingListService {
       .update({ name: newName })
       .eq('id', listId);
 
-    if (updateError) throw new InternalServerErrorException(`Errore nell'aggiornamento della lista`);
+    if (updateError)
+      throw new InternalServerErrorException(
+        `Errore nell'aggiornamento della lista`,
+      );
     return { message: 'Nome della lista aggiornato con successo' };
   }
 
@@ -82,7 +93,10 @@ export class ShoppingListService {
       .select('id')
       .eq('list_id', listId);
 
-    if (itemError) throw new InternalServerErrorException('Errore nel controllo degli elementi della lista');
+    if (itemError)
+      throw new InternalServerErrorException(
+        'Errore nel controllo degli elementi della lista',
+      );
 
     if (items.length > 0) {
       const { data: group, error: groupError } = await this.supabase
@@ -105,12 +119,22 @@ export class ShoppingListService {
         .single();
 
       if (membershipError || !membership || membership.role !== 'admin') {
-        throw new ForbiddenException('Solo un admin può eliminare una lista con elementi al suo interno');
+        throw new ForbiddenException(
+          'Solo un admin può eliminare una lista con elementi al suo interno',
+        );
       }
     }
 
-    await this.supabase.getClient().from('shopping_items').delete().eq('list_id', listId);
-    await this.supabase.getClient().from('shopping_lists').delete().eq('id', listId);
+    await this.supabase
+      .getClient()
+      .from('shopping_items')
+      .delete()
+      .eq('list_id', listId);
+    await this.supabase
+      .getClient()
+      .from('shopping_lists')
+      .delete()
+      .eq('id', listId);
     return { message: 'Lista eliminata con successo' };
   }
 }

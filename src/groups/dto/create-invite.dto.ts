@@ -1,12 +1,8 @@
-import { IsString, IsUUID, IsEmail } from 'class-validator';
+import { IsNumber, IsOptional, Min } from 'class-validator';
 
 export class CreateInviteDto {
-  @IsUUID()
-  group_id: string;
-
-  @IsEmail()
-  email: string;
-
-  @IsString()
-  role: 'admin' | 'member' | 'viewer';
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  expiresInHours?: number = 24;
 }

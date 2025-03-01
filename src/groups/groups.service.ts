@@ -1,165 +1,203 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { v4 as uuidv4 } from 'uuid';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
-import { UpdateRoleDto } from './dto/update-role.dto';
 import { CreateInviteDto } from './dto/create-invite.dto';
-import { v4 as uuidv4 } from 'uuid';
+import { UpdateRoleDto } from './dto/update-role.dto';
 
 @Injectable()
 export class GroupsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async createGroup(userId: string, createGroupDto: CreateGroupDto) {
-    const { data, error } = await this.supabaseService
+  /**
+   * Crea un gruppo e aggiunge l'utente come admin
+   */
+  async createGroup(userId: string, dto: CreateGroupDto) {
+    // 1. Verifica che il TAG sia univoco
+    const { data: existingTag, error: tagError } = await this.supabaseService
       .getClient()
       .from('groups')
-      .insert({ ...createGroupDto })
-      .select()
+      .select('id')
+      .eq('tag', dto.tag)
       .single();
 
-    if (error) {
-      throw new Error(error.message);
+    if (existingTag) {
+      throw new BadRequestException(`Il TAG '${dto.tag}' è già in uso`);
     }
 
-    await this.addUserToGroup(userId, data.id, 'admin');
-    return data;
-  }
-
-  async getUserGroups(userId: string) {
-    const { data, error } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select('group_id, role')
-      .eq('user_id', userId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return data;
-  }
-
-  async getGroupInvites(groupId: string) {
-    const { data, error } = await this.supabaseService
-      .getClient()
-      .from('group_invites')
-      .select('*')
-      .eq('group_id', groupId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return data;
-  }
-
-  async updateGroup(groupId: string, updateGroupDto: UpdateGroupDto) {
-    const { data, error } = await this.supabaseService
+    // 2. Crea il gruppo
+    const { data: groupData, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
-      .update(updateGroupDto)
-      .eq('id', groupId)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(error.message);
-    }
-    return data;
-  }
-
-  async deleteGroup(groupId: string) {
-    const { error } = await this.supabaseService
-      .getClient()
-      .from('groups')
-      .delete()
-      .eq('id', groupId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  async addUserToGroup(userId: string, groupId: string, role: string) {
-    const { error } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .insert({ user_id: userId, group_id: groupId, role });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  async updateUserRole(updateRoleDto: UpdateRoleDto) {
-    const { error } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .update({ role: updateRoleDto.role })
-      .eq('group_id', updateRoleDto.group_id)
-      .eq('user_id', updateRoleDto.user_id);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  async inviteUserToGroup(createInviteDto: CreateInviteDto) {
-    const inviteToken = uuidv4();
-    const expirationTime = new Date();
-    expirationTime.setHours(expirationTime.getHours() + 24);
-
-    const { data, error } = await this.supabaseService
-      .getClient()
-      .from('group_invites')
       .insert({
-        group_id: createInviteDto.group_id,
-        email: createInviteDto.email,
-        role: createInviteDto.role,
-        invite_token: inviteToken,
-        expires_at: expirationTime.toISOString(),
+        name: dto.name,
+        tag: dto.tag,
+        requirePassword: dto.requirePassword ?? false,
+        passwordHash: null,
       })
       .select()
       .single();
 
+    if (groupError) {
+      throw new Error(groupError.message);
+    }
+
+    // 3. Aggiunge il creatore come admin in `group_members`
+    const { error: memberError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .insert({
+        user_id: userId,
+        group_id: groupData.id,
+        role: 'admin',
+      });
+
+    if (memberError) {
+      throw new Error(memberError.message);
+    }
+
+    return groupData;
+  }
+
+  /**
+   * Recupera tutti i gruppi di cui l'utente fa parte
+   */
+  async getUserGroups(userId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select(
+        `
+        role,
+        group_id:groups (
+          id, name, tag, requirePassword, created_at,
+          group_members (id, user_id, role, joined_at, user:profiles(*))
+        )
+      `,
+      )
+      .eq('user_id', userId);
+
+    if (error) {
+      throw new Error(`Errore nel recupero gruppi: ${error.message}`);
+    }
+
+    return data.map((row) => ({
+      ...row.group_id,
+      userRole: row.role,
+    }));
+  }
+
+  /**
+   * Recupera i dettagli di un gruppo
+   */
+  async getGroupDetails(groupId: string, userId: string) {
+    const { data: memberData, error: memberError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!memberData) {
+      throw new ForbiddenException('Non sei membro di questo gruppo');
+    }
+
+    const { data: groupData, error: groupError } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select(
+        `
+      id, name, tag, requirePassword, created_at,
+      group_members (id, user_id, role, joined_at, user:profiles(*))
+    `,
+      )
+      .eq('id', groupId)
+      .single();
+
+    if (!groupData) {
+      throw new NotFoundException('Gruppo non trovato');
+    }
+
+    let invites: any[] = [];
+
+    if (memberData.role === 'admin') {
+      const { data: invitesData } = await this.supabaseService
+        .getClient()
+        .from('group_invites')
+        .select('*')
+        .eq('group_id', groupId);
+
+      invites = invitesData ?? [];
+    }
+
+    return { ...groupData, invites };
+  }
+
+  /**
+   * Crea un invito con token
+   */
+  async createInvite(groupId: string, userId: string, dto: CreateInviteDto) {
+    const inviteToken = uuidv4();
+    const expiresAt = new Date(
+      Date.now() + (dto.expiresInHours ?? 24) * 3600 * 1000,
+    );
+
+    const { error } = await this.supabaseService
+      .getClient()
+      .from('group_invites')
+      .insert({
+        group_id: groupId,
+        invite_token: inviteToken,
+        expires_at: expiresAt.toISOString(),
+      });
+
     if (error) {
       throw new Error(error.message);
     }
 
-    return { inviteLink: `/invite/${inviteToken}`, expiresAt: expirationTime };
+    return { inviteToken, expiresAt };
   }
 
-  async joinGroupWithToken(inviteToken: string, userId: string) {
-    const { data: invite, error: inviteError } = await this.supabaseService
+  /**
+   * Unisce un utente a un gruppo tramite invito
+   */
+  async joinGroup(inviteToken: string, userId: string) {
+    const { data: invite } = await this.supabaseService
       .getClient()
       .from('group_invites')
       .select('*')
       .eq('invite_token', inviteToken)
       .single();
 
-    if (inviteError || !invite) {
-      throw new Error('Invalid or expired invite token');
+    if (!invite) {
+      throw new NotFoundException('Invito non valido');
     }
 
-    const now = new Date();
-    if (new Date(invite.expires_at) < now) {
-      throw new Error('Invite has expired');
+    if (new Date(invite.expires_at) < new Date()) {
+      throw new BadRequestException('Invito scaduto');
     }
 
-    await this.addUserToGroup(userId, invite.group_id, invite.role);
+    await this.supabaseService.getClient().from('group_members').insert({
+      user_id: userId,
+      group_id: invite.group_id,
+      role: 'member',
+    });
 
-    await this.supabaseService
-      .getClient()
-      .from('group_invites')
-      .delete()
-      .eq('invite_token', inviteToken);
-
-    return { message: 'Successfully joined group' };
+    return { message: 'Aggiunto con successo' };
   }
 
-  async deleteGroupMember(groupId: string, userId: string, adminId: string) {
-    const { data: adminCheck, error: adminError } = await this.supabaseService
+  /**
+   * Rimuove un utente dal gruppo
+   */
+  async removeUser(groupId: string, userId: string, adminId: string) {
+    const { data: adminCheck } = await this.supabaseService
       .getClient()
       .from('group_members')
       .select('role')
@@ -167,31 +205,145 @@ export class GroupsService {
       .eq('user_id', adminId)
       .single();
 
-    if (adminError || !adminCheck || adminCheck.role !== 'admin') {
-      throw new Error('Only admins can remove users');
+    if (adminCheck?.role !== 'admin') {
+      throw new ForbiddenException('Solo gli admin possono rimuovere utenti');
     }
 
-    const { error } = await this.supabaseService
+    await this.supabaseService
       .getClient()
       .from('group_members')
       .delete()
       .eq('group_id', groupId)
       .eq('user_id', userId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
   }
 
-  async deleteGroupInvite(inviteId: string) {
-    const { error } = await this.supabaseService
+  /**
+   * Aggiorna il ruolo di un membro
+   */
+  async updateUserRole(dto: UpdateRoleDto) {
+    await this.supabaseService
       .getClient()
-      .from('group_invites')
-      .delete()
-      .eq('id', inviteId);
+      .from('group_members')
+      .update({ role: dto.role })
+      .eq('group_id', dto.group_id)
+      .eq('user_id', dto.user_id);
+  }
 
-    if (error) {
-      throw new Error(error.message);
+  // 1️⃣ Gli utenti possono fare richiesta di ingresso a un gruppo tramite tag
+  async createJoinRequest(groupTag: string, userId: string) {
+    // 1. Trova il gruppo tramite il tag
+    const { data: group, error: groupError } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('id')
+      .eq('tag', groupTag)
+      .single();
+
+    if (groupError || !group) {
+      throw new NotFoundException('Gruppo non trovato');
     }
+
+    // 2. Crea la richiesta di ingresso (stato 'pending')
+    const { data: request, error: requestError } = await this.supabaseService
+      .getClient()
+      .from('group_join_requests')
+      .insert({
+        group_id: group.id,
+        user_id: userId,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (requestError) {
+      throw new Error('Errore nella creazione della richiesta di ingresso');
+    }
+
+    return request;
+  }
+
+  // 2️⃣ Recupera tutte le richieste di ingresso di un gruppo (solo admin)
+  async getJoinRequests(groupId: string, userId: string) {
+    // Verifica che l'utente sia un admin del gruppo
+    const { data: adminCheck, error: adminError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .single();
+
+    if (adminError || adminCheck?.role !== 'admin') {
+      throw new ForbiddenException('Solo un admin può vedere le richieste');
+    }
+
+    // Ottieni tutte le richieste per quel gruppo
+    const { data: joinRequests, error: requestsError } =
+      await this.supabaseService
+        .getClient()
+        .from('group_join_requests')
+        .select('user_id, status, created_at')
+        .eq('group_id', groupId);
+
+    if (requestsError) {
+      throw new Error('Errore nel recupero delle richieste di ingresso');
+    }
+
+    return joinRequests;
+  }
+
+  // 3️⃣ Approva o rifiuta una richiesta di ingresso
+  async updateJoinRequestStatus(
+    requestId: string,
+    status: 'approved' | 'denied',
+    adminId: string,
+  ) {
+    // Verifica che l'utente sia un admin
+    const { data: request, error: requestError } = await this.supabaseService
+      .getClient()
+      .from('group_join_requests')
+      .select('group_id, user_id')
+      .eq('id', requestId)
+      .single();
+
+    if (requestError || !request) {
+      throw new NotFoundException('Richiesta di ingresso non trovata');
+    }
+
+    const { data: adminCheck, error: adminError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('role')
+      .eq('group_id', request.group_id)
+      .eq('user_id', adminId)
+      .single();
+
+    if (adminError || adminCheck?.role !== 'admin') {
+      throw new ForbiddenException(
+        'Solo un admin può approvare o rifiutare le richieste',
+      );
+    }
+
+    // 4. Approva o rifiuta la richiesta
+    const { error: updateError } = await this.supabaseService
+      .getClient()
+      .from('group_join_requests')
+      .update({ status })
+      .eq('id', requestId);
+
+    if (updateError) {
+      throw new Error("Errore nell'approvare o rifiutare la richiesta");
+    }
+
+    // 5. Se approvata, aggiungi l'utente al gruppo
+    if (status === 'approved') {
+      await this.supabaseService.getClient().from('group_members').insert({
+        user_id: request.user_id,
+        group_id: request.group_id,
+        role: 'member', // Aggiungi come membro
+      });
+    }
+
+    return { message: `La richiesta è stata ${status}` };
   }
 }

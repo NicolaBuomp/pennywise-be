@@ -1,12 +1,15 @@
-import { IsString, IsUUID } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class UpdateRoleDto {
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   group_id: string;
 
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   user_id: string;
 
   @IsString()
+  @IsNotEmpty()
   role: 'admin' | 'member' | 'viewer';
 }
