@@ -8,7 +8,7 @@ import {
   Request,
   NotFoundException,
 } from '@nestjs/common';
-import { GroupsService } from './groups.service';
+import { GroupDetails, GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { CreateInviteDto } from './dto/create-invite.dto';
@@ -28,7 +28,10 @@ export class GroupsController {
   }
 
   @Get(':groupId')
-  async getGroup(@Param('groupId') groupId: string, @Request() req) {
+  async getGroup(
+    @Param('groupId') groupId: string,
+    @Request() req,
+  ): Promise<GroupDetails> {
     return this.groupsService.getGroupDetails(groupId, req.user.id);
   }
 

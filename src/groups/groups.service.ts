@@ -7,9 +7,28 @@ import {
 import { SupabaseService } from '../supabase/supabase.service';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateGroupDto } from './dto/create-group.dto';
-import { UpdateGroupDto } from './dto/update-group.dto';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
+import * as bcrypt from 'bcrypt';
+
+interface GroupInvite {
+  id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface GroupDetails {
+  id: string;
+  name: string;
+  tag: string;
+  require_password: boolean;
+  created_at: string | Date;
+  user_role: string;
+  admin_id: string | null;
+  members_count: number;
+  members: any[];
+  join_requests: GroupInvite[];
+}
 
 @Injectable()
 export class GroupsService {
@@ -18,9 +37,10 @@ export class GroupsService {
   /**
    * Crea un gruppo e aggiunge l'utente come admin
    */
+
   async createGroup(userId: string, dto: CreateGroupDto) {
-    // 1. Verifica che il TAG sia univoco
-    const { data: existingTag, error: tagError } = await this.supabaseService
+    // 1️⃣ Controlla se il TAG è univoco
+    const { data: existingTag } = await this.supabaseService
       .getClient()
       .from('groups')
       .select('id')
@@ -31,24 +51,32 @@ export class GroupsService {
       throw new BadRequestException(`Il TAG '${dto.tag}' è già in uso`);
     }
 
-    // 2. Crea il gruppo
+    // 2️⃣ Hash della password (se presente)
+    let password_hash = null;
+    if (dto.requirePassword && dto.password) {
+      password_hash = await bcrypt.hash(dto.password, 10);
+    }
+
+    // 3️⃣ Crea il gruppo
     const { data: groupData, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
       .insert({
         name: dto.name,
         tag: dto.tag,
-        requirePassword: dto.requirePassword ?? false,
-        passwordHash: null,
+        require_password: dto.requirePassword ?? false,
+        password_hash, // 🔥 Ora salviamo l'hash della password
       })
       .select()
       .single();
 
     if (groupError) {
-      throw new Error(groupError.message);
+      throw new Error(
+        `Errore durante la creazione del gruppo: ${groupError.message}`,
+      );
     }
 
-    // 3. Aggiunge il creatore come admin in `group_members`
+    // 4️⃣ Aggiunge l'admin al gruppo
     const { error: memberError } = await this.supabaseService
       .getClient()
       .from('group_members')
@@ -59,9 +87,10 @@ export class GroupsService {
       });
 
     if (memberError) {
-      throw new Error(memberError.message);
+      throw new Error(`Errore nell'aggiungere l'admin: ${memberError.message}`);
     }
 
+    console.log('Gruppo creato con successo:', groupData);
     return groupData;
   }
 
@@ -108,7 +137,11 @@ export class GroupsService {
   /**
    * Recupera i dettagli di un gruppo
    */
-  async getGroupDetails(groupId: string, userId: string) {
+  async getGroupDetails(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupDetails> {
+    // 1️⃣ Controlliamo se l'utente è membro del gruppo
     const { data: memberData, error: memberError } = await this.supabaseService
       .getClient()
       .from('group_members')
@@ -118,38 +151,67 @@ export class GroupsService {
       .maybeSingle();
 
     if (!memberData) {
-      throw new ForbiddenException('Non sei membro di questo gruppo');
+      throw new ForbiddenException('❌ Non sei membro di questo gruppo');
     }
 
+    // 2️⃣ Recuperiamo i dati del gruppo (migliorata query per evitare errori)
     const { data: groupData, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
       .select(
         `
-      id, name, tag, requirePassword, created_at,
-      group_members (id, user_id, role, joined_at, user:profiles(*))
-    `,
+            id, name, tag, require_password, created_at,
+            group_members (
+                id, user_id, role, joined_at,
+                profiles (id, full_name, phone_number)
+            ),
+            group_invites (
+                id, created_by, created_at
+            )
+        `,
       )
       .eq('id', groupId)
-      .single();
+      .maybeSingle();
 
     if (!groupData) {
-      throw new NotFoundException('Gruppo non trovato');
+      throw new NotFoundException(`❌ Gruppo non trovato: ${groupId}`);
     }
 
-    let invites: any[] = [];
+    // 3️⃣ Trasformiamo i membri in un formato chiaro
+    const members = (groupData.group_members || []).map((member: any) => {
+      const userObj = member.profiles ?? {};
+      return {
+        id: userObj.id || member.user_id,
+        full_name: userObj.full_name || 'Utente sconosciuto',
+        role: member.role,
+        joined_at: member.joined_at,
+        avatar_url: userObj.avatar_url || null,
+        phone_number: userObj.phone_number || null,
+      };
+    });
 
-    if (memberData.role === 'admin') {
-      const { data: invitesData } = await this.supabaseService
-        .getClient()
-        .from('group_invites')
-        .select('*')
-        .eq('group_id', groupId);
+    // 4️⃣ Recuperiamo gli inviti e correggiamo i dati
+    const join_requests: GroupInvite[] = (groupData.group_invites || []).map(
+      (invite: any) => ({
+        id: invite.id,
+        user_id: invite.created_by, // Utilizzo created_by come user_id per rispettare l'interfaccia
+        created_at: invite.created_at,
+      }),
+    );
 
-      invites = invitesData ?? [];
-    }
-
-    return { ...groupData, invites };
+    // 5️⃣ Costruiamo la risposta finale
+    return {
+      id: groupData.id,
+      name: groupData.name,
+      tag: groupData.tag,
+      require_password: groupData.require_password,
+      created_at: groupData.created_at,
+      user_role: memberData.role,
+      admin_id: members.find((m: any) => m.role === 'admin')?.id || null,
+      members_count: members.length,
+      members,
+      join_requests,
+    };
   }
 
   /**
