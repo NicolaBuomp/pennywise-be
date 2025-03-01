@@ -69,28 +69,40 @@ export class GroupsService {
    * Recupera tutti i gruppi di cui l'utente fa parte
    */
   async getUserGroups(userId: string) {
-    const { data, error } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select(
-        `
-        role,
-        group_id:groups (
-          id, name, tag, requirePassword, created_at,
-          group_members (id, user_id, role, joined_at, user:profiles(*))
-        )
-      `,
-      )
-      .eq('user_id', userId);
-
-    if (error) {
-      throw new Error(`Errore nel recupero gruppi: ${error.message}`);
+    if (!userId) {
+      throw new BadRequestException('User ID non valido');
     }
 
-    return data.map((row) => ({
-      ...row.group_id,
-      userRole: row.role,
-    }));
+    const { data: memberData, error: memberError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', userId);
+
+    if (memberError) {
+      throw new Error(
+        `Errore nel recupero delle membership: ${memberError.message}`,
+      );
+    }
+
+    if (!memberData || memberData.length === 0) {
+      return []; // Utente non in nessun gruppo
+    }
+
+    const groupIds = memberData.map((item) => item.group_id);
+    console.log('Gruppi trovati:', groupIds);
+
+    const { data: groupsData, error: groupsError } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('*')
+      .in('id', groupIds);
+
+    if (groupsError) {
+      throw new Error(`Errore nel recupero dei gruppi: ${groupsError.message}`);
+    }
+
+    return groupsData;
   }
 
   /**
@@ -138,6 +150,30 @@ export class GroupsService {
     }
 
     return { ...groupData, invites };
+  }
+
+  /**
+   * Cerca un gruppo tramite il suo TAG
+   */
+  async searchGroupByTag(tag: string) {
+    if (!tag.trim()) {
+      throw new BadRequestException('Il TAG non può essere vuoto');
+    }
+
+    // 1. Cerchiamo il gruppo
+    const { data: group, error: groupError } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('*')
+      .eq('tag', tag)
+      .maybeSingle(); // 🔹 Usiamo `.maybeSingle()` per non generare errore se non ci sono risultati
+
+    // 2. Se non troviamo il gruppo, restituiamo un messaggio chiaro
+    if (!group) {
+      return null;
+    }
+
+    return group;
   }
 
   /**

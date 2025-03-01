@@ -6,6 +6,7 @@ import {
   Param,
   Body,
   Request,
+  NotFoundException,
 } from '@nestjs/common';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
@@ -29,6 +30,17 @@ export class GroupsController {
   @Get(':groupId')
   async getGroup(@Param('groupId') groupId: string, @Request() req) {
     return this.groupsService.getGroupDetails(groupId, req.user.id);
+  }
+
+  @Get('tag/:tag')
+  async searchGroupByTag(@Param('tag') tag: string) {
+    const group = await this.groupsService.searchGroupByTag(tag);
+
+    if (!group) {
+      throw new NotFoundException(`Nessun gruppo trovato con il TAG: ${tag}`);
+    }
+
+    return group;
   }
 
   @Post(':groupId/invite')
