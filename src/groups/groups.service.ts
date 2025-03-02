@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -28,6 +29,8 @@ export interface GroupDetails {
   members_count: number;
   members: any[];
   join_requests: GroupInvite[];
+  expenses: any[];
+  balances: any[];
 }
 
 @Injectable()
@@ -35,20 +38,20 @@ export class GroupsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   /**
-   * Crea un gruppo e aggiunge l'utente come admin
+   * Crea un nuovo gruppo e aggiunge automaticamente l'admin e il fondo spese
    */
-
   async createGroup(userId: string, dto: CreateGroupDto) {
-    // 1️⃣ Controlla se il TAG è univoco
-    const { data: existingTag } = await this.supabaseService
-      .getClient()
-      .from('groups')
-      .select('id')
-      .eq('tag', dto.tag)
-      .single();
+    // 1️⃣ Generazione del tag univoco
+    const baseTag = dto.name
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-]/g, '');
+    let uniqueTag = baseTag;
+    let suffix = 1;
 
-    if (existingTag) {
-      throw new BadRequestException(`Il TAG '${dto.tag}' è già in uso`);
+    while (await this.isTagExists(uniqueTag)) {
+      uniqueTag = `${baseTag}-${suffix}`;
+      suffix++;
     }
 
     // 2️⃣ Hash della password (se presente)
@@ -57,15 +60,15 @@ export class GroupsService {
       password_hash = await bcrypt.hash(dto.password, 10);
     }
 
-    // 3️⃣ Crea il gruppo
+    // 3️⃣ Creazione del gruppo
     const { data: groupData, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
       .insert({
         name: dto.name,
-        tag: dto.tag,
+        tag: uniqueTag,
         require_password: dto.requirePassword ?? false,
-        password_hash, // 🔥 Ora salviamo l'hash della password
+        password_hash,
       })
       .select()
       .single();
@@ -76,7 +79,7 @@ export class GroupsService {
       );
     }
 
-    // 4️⃣ Aggiunge l'admin al gruppo
+    // 4️⃣ Aggiunta dell'admin al gruppo
     const { error: memberError } = await this.supabaseService
       .getClient()
       .from('group_members')
@@ -90,60 +93,21 @@ export class GroupsService {
       throw new Error(`Errore nell'aggiungere l'admin: ${memberError.message}`);
     }
 
-    console.log('Gruppo creato con successo:', groupData);
-    return groupData;
+    return { message: 'Gruppo creato con successo',
+      group: {
+        ...groupData
+      }
+    };
   }
 
   /**
-   * Recupera tutti i gruppi di cui l'utente fa parte
+   * Recupera i dettagli di un gruppo, inclusi membri, spese e bilancio
    */
-  async getUserGroups(userId: string) {
-    if (!userId) {
-      throw new BadRequestException('User ID non valido');
-    }
+  async getGroupDetails(groupId: string, userId: string): Promise<GroupDetails> {
+    const supabase = this.supabaseService.getClient();
 
-    const { data: memberData, error: memberError } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select('group_id')
-      .eq('user_id', userId);
-
-    if (memberError) {
-      throw new Error(
-        `Errore nel recupero delle membership: ${memberError.message}`,
-      );
-    }
-
-    if (!memberData || memberData.length === 0) {
-      return []; // Utente non in nessun gruppo
-    }
-
-    const groupIds = memberData.map((item) => item.group_id);
-    console.log('Gruppi trovati:', groupIds);
-
-    const { data: groupsData, error: groupsError } = await this.supabaseService
-      .getClient()
-      .from('groups')
-      .select('*')
-      .in('id', groupIds);
-
-    if (groupsError) {
-      throw new Error(`Errore nel recupero dei gruppi: ${groupsError.message}`);
-    }
-
-    return groupsData;
-  }
-
-  /**
-   * Recupera i dettagli di un gruppo
-   */
-  async getGroupDetails(
-    groupId: string,
-    userId: string,
-  ): Promise<GroupDetails> {
-    // 1️⃣ Controlliamo se l'utente è membro del gruppo
-    const { data: memberData, error: memberError } = await this.supabaseService
-      .getClient()
+    // 1️⃣ Verifica se l'utente è membro del gruppo
+    const { data: memberData } = await supabase
       .from('group_members')
       .select('role')
       .eq('group_id', groupId)
@@ -154,22 +118,10 @@ export class GroupsService {
       throw new ForbiddenException('❌ Non sei membro di questo gruppo');
     }
 
-    // 2️⃣ Recuperiamo i dati del gruppo (migliorata query per evitare errori)
-    const { data: groupData, error: groupError } = await this.supabaseService
-      .getClient()
+    // 2️⃣ Recuperiamo i dati del gruppo
+    const { data: groupData } = await supabase
       .from('groups')
-      .select(
-        `
-            id, name, tag, require_password, created_at,
-            group_members (
-                id, user_id, role, joined_at,
-                profiles (id, full_name, phone_number)
-            ),
-            group_invites (
-                id, created_by, created_at
-            )
-        `,
-      )
+      .select('id, name, tag, require_password, created_at')
       .eq('id', groupId)
       .maybeSingle();
 
@@ -177,29 +129,77 @@ export class GroupsService {
       throw new NotFoundException(`❌ Gruppo non trovato: ${groupId}`);
     }
 
-    // 3️⃣ Trasformiamo i membri in un formato chiaro
-    const members = (groupData.group_members || []).map((member: any) => {
-      const userObj = member.profiles ?? {};
+    // 3️⃣ Recuperiamo i membri del gruppo con dettagli utente
+    const { data: membersData, error: membersError } = await supabase
+      .from('group_members')
+      .select(`
+      user_id, role, joined_at,
+      profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
+    `)
+      .eq('group_id', groupId);
+
+    if (membersError) {
+      throw new InternalServerErrorException(`❌ Errore nel recupero dei membri: ${membersError.message}`);
+    }
+
+    // 4️⃣ Formattiamo i dati dei membri
+    const members = (membersData || []).map((member) => {
+      const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+
       return {
-        id: userObj.id || member.user_id,
-        full_name: userObj.full_name || 'Utente sconosciuto',
+        id: profile?.id || member.user_id,
+        first_name: profile?.first_name || '',
+        last_name: profile?.last_name || '',
+        full_name: profile?.full_name || 'Utente sconosciuto',
         role: member.role,
         joined_at: member.joined_at,
-        avatar_url: userObj.avatar_url || null,
-        phone_number: userObj.phone_number || null,
+        phone_number: profile?.phone_number || null,
+        avatar_url: profile?.avatar_url || null,
+        balance: 0, // Lo aggiorneremo dopo
       };
     });
 
-    // 4️⃣ Recuperiamo gli inviti e correggiamo i dati
-    const join_requests: GroupInvite[] = (groupData.group_invites || []).map(
-      (invite: any) => ({
-        id: invite.id,
-        user_id: invite.created_by, // Utilizzo created_by come user_id per rispettare l'interfaccia
-        created_at: invite.created_at,
-      }),
-    );
+    // 5️⃣ Recuperiamo il log delle spese del gruppo
+    const { data: expensesData } = await supabase
+      .from('expenses_log')
+      .select('*')
+      .eq('group_id', groupId);
 
-    // 5️⃣ Costruiamo la risposta finale
+    const expenses = expensesData || [];
+
+    // 6️⃣ Recuperiamo i bilanci del gruppo
+    const { data: balancesData } = await supabase
+      .from('group_balances')
+      .select('payer_id, user_id, amount')
+      .eq('group_id', groupId);
+
+    const balances = balancesData || [];
+
+    // 7️⃣ Calcoliamo il saldo di ogni membro
+    const balanceMap: { [key: string]: number } = {};
+
+    balances.forEach(({ payer_id, user_id, amount }) => {
+      if (!balanceMap[payer_id]) balanceMap[payer_id] = 0;
+      if (!balanceMap[user_id]) balanceMap[user_id] = 0;
+
+      balanceMap[user_id] -= amount; // L'utente ha un debito
+      balanceMap[payer_id] += amount; // Il payer ha un credito
+    });
+
+    // 8️⃣ Assegniamo i saldi ai membri
+    members.forEach((member) => {
+      member.balance = balanceMap[member.id] || 0;
+    });
+
+    // 9️⃣ Recuperiamo le richieste di accesso in sospeso
+    const { data: joinRequestsData } = await supabase
+      .from('group_join_requests')
+      .select('id, user_id, created_at')
+      .eq('group_id', groupId)
+      .eq('status', 'pending');
+
+    const join_requests: GroupInvite[] = joinRequestsData || [];
+
     return {
       id: groupData.id,
       name: groupData.name,
@@ -207,13 +207,39 @@ export class GroupsService {
       require_password: groupData.require_password,
       created_at: groupData.created_at,
       user_role: memberData.role,
-      admin_id: members.find((m: any) => m.role === 'admin')?.id || null,
+      admin_id: members.find((m) => m.role === 'admin')?.id || null,
       members_count: members.length,
       members,
+      expenses,
+      balances,
       join_requests,
     };
   }
 
+  /**
+   * Recupera tutti i gruppi di cui un utente fa parte
+   */
+  async getUserGroups(userId: string) {
+    const { data: groupMemberships } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', userId);
+
+    if (!groupMemberships || groupMemberships.length === 0) {
+      return [];
+    }
+
+    const groupIds = groupMemberships.map((g) => g.group_id);
+
+    const { data: groups } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('*')
+      .in('id', groupIds);
+
+    return groups;
+  }
   /**
    * Cerca un gruppo tramite il suo TAG
    */
@@ -329,6 +355,7 @@ export class GroupsService {
 
   // 1️⃣ Gli utenti possono fare richiesta di ingresso a un gruppo tramite tag
   async createJoinRequest(groupTag: string, userId: string) {
+    console.log(groupTag, 'groupTag');
     // 1. Trova il gruppo tramite il tag
     const { data: group, error: groupError } = await this.supabaseService
       .getClient()
@@ -340,6 +367,8 @@ export class GroupsService {
     if (groupError || !group) {
       throw new NotFoundException('Gruppo non trovato');
     }
+
+    console.log(group);
 
     // 2. Crea la richiesta di ingresso (stato 'pending')
     const { data: request, error: requestError } = await this.supabaseService
@@ -443,5 +472,17 @@ export class GroupsService {
     }
 
     return { message: `La richiesta è stata ${status}` };
+  }
+
+
+  // Funzione per verificare se un tag esiste già
+  private async isTagExists(tag: string): Promise<boolean> {
+    const { data: existingTag } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('id')
+      .eq('tag', tag)
+      .single();
+    return !!existingTag;
   }
 }

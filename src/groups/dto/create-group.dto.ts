@@ -5,10 +5,6 @@ export class CreateGroupDto {
   @IsNotEmpty()
   name: string;
 
-  @IsString()
-  @IsNotEmpty()
-  tag: string;
-
   @IsBoolean()
   @IsOptional()
   requirePassword?: boolean;

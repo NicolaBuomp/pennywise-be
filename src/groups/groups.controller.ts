@@ -76,6 +76,7 @@ export class GroupsController {
 
   @Post('join/:groupTag')
   async createJoinRequest(@Param('groupTag') groupTag: string, @Request() req) {
+    console.log(groupTag);
     return this.groupsService.createJoinRequest(groupTag, req.user.id);
   }
 
