@@ -55,7 +55,7 @@ export class GroupsController {
     return this.groupsService.createInvite(groupId, req.user.id, dto);
   }
 
-  @Post('join/:inviteToken')
+  @Post('join-by-token/:inviteToken')
   async joinGroup(@Param('inviteToken') inviteToken: string, @Request() req) {
     return this.groupsService.joinGroup(inviteToken, req.user.id);
   }
@@ -74,7 +74,7 @@ export class GroupsController {
     return this.groupsService.removeUser(groupId, userId, req.user.id);
   }
 
-  @Post('join/:groupTag')
+  @Post('join-by-tag/:groupTag')
   async createJoinRequest(@Param('groupTag') groupTag: string, @Request() req) {
     console.log(groupTag);
     return this.groupsService.createJoinRequest(groupTag, req.user.id);

@@ -14,8 +14,17 @@ import * as bcrypt from 'bcrypt';
 
 interface GroupInvite {
   id: string;
-  user_id: string;
   created_at: string;
+  user_info: Profile;
+}
+
+interface Profile {
+  id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  phone_number: string;
+  avatar_url: string;
 }
 
 export interface GroupDetails {
@@ -27,7 +36,7 @@ export interface GroupDetails {
   user_role: string;
   admin_id: string | null;
   members_count: number;
-  members: any[];
+  members: Profile[];
   join_requests: GroupInvite[];
   expenses: any[];
   balances: any[];
@@ -93,17 +102,21 @@ export class GroupsService {
       throw new Error(`Errore nell'aggiungere l'admin: ${memberError.message}`);
     }
 
-    return { message: 'Gruppo creato con successo',
+    return {
+      message: 'Gruppo creato con successo',
       group: {
-        ...groupData
-      }
+        ...groupData,
+      },
     };
   }
 
   /**
    * Recupera i dettagli di un gruppo, inclusi membri, spese e bilancio
    */
-  async getGroupDetails(groupId: string, userId: string): Promise<GroupDetails> {
+  async getGroupDetails(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupDetails> {
     const supabase = this.supabaseService.getClient();
 
     // 1️⃣ Verifica se l'utente è membro del gruppo
@@ -132,19 +145,25 @@ export class GroupsService {
     // 3️⃣ Recuperiamo i membri del gruppo con dettagli utente
     const { data: membersData, error: membersError } = await supabase
       .from('group_members')
-      .select(`
+      .select(
+        `
       user_id, role, joined_at,
       profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
-    `)
+    `,
+      )
       .eq('group_id', groupId);
 
     if (membersError) {
-      throw new InternalServerErrorException(`❌ Errore nel recupero dei membri: ${membersError.message}`);
+      throw new InternalServerErrorException(
+        `❌ Errore nel recupero dei membri: ${membersError.message}`,
+      );
     }
 
     // 4️⃣ Formattiamo i dati dei membri
     const members = (membersData || []).map((member) => {
-      const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+      const profile = Array.isArray(member.profiles)
+        ? member.profiles[0]
+        : member.profiles;
 
       return {
         id: profile?.id || member.user_id,
@@ -191,14 +210,47 @@ export class GroupsService {
       member.balance = balanceMap[member.id] || 0;
     });
 
-    // 9️⃣ Recuperiamo le richieste di accesso in sospeso
-    const { data: joinRequestsData } = await supabase
+    // 9️⃣ Recuperiamo le richieste di accesso in sospeso con dettagli utente
+    const { data: joinRequestsData, error: joinRequestsError } = await supabase
       .from('group_join_requests')
-      .select('id, user_id, created_at')
+      .select(
+        `
+    id,
+    user_id,
+    created_at,
+    profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
+  `,
+      )
       .eq('group_id', groupId)
       .eq('status', 'pending');
 
-    const join_requests: GroupInvite[] = joinRequestsData || [];
+    if (joinRequestsError) {
+      throw new Error(
+        `Errore nel recupero delle richieste di accesso: ${joinRequestsError.message}`,
+      );
+    }
+
+    // Mappiamo i dati per includere le informazioni del profilo utente
+    const join_requests: GroupInvite[] = (joinRequestsData || []).map(
+      (request) => {
+        const profile = Array.isArray(request.profiles)
+          ? request.profiles[0]
+          : request.profiles;
+
+        return {
+          id: request.id,
+          created_at: request.created_at,
+          user_info: {
+            id: profile?.id || request.user_id,
+            first_name: profile?.first_name || '',
+            last_name: profile?.last_name || '',
+            full_name: profile?.full_name || '',
+            phone_number: profile?.phone_number || null,
+            avatar_url: profile?.avatar_url || null,
+          },
+        };
+      },
+    );
 
     return {
       id: groupData.id,
@@ -473,7 +525,6 @@ export class GroupsService {
 
     return { message: `La richiesta è stata ${status}` };
   }
-
 
   // Funzione per verificare se un tag esiste già
   private async isTagExists(tag: string): Promise<boolean> {
