@@ -18,6 +18,9 @@ interface Profile {
   full_name: string;
   phone_number: string;
   avatar_url: string;
+  balance?: number;
+  role?: string;
+  joined_at?: string;
 }
 
 interface GroupInvite {
@@ -53,64 +56,28 @@ export class GroupsService {
    * Crea un nuovo gruppo e aggiunge automaticamente l'admin e il fondo spese
    */
   async createGroup(userId: string, dto: CreateGroupDto) {
-    // 1️⃣ Generazione del tag univoco
-    const baseTag = dto.name
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9\-]/g, '');
-    let uniqueTag = baseTag;
-    let suffix = 1;
+    try {
+      // 1️⃣ Generazione del tag univoco
+      const uniqueTag = await this.generateUniqueTag(dto.name);
 
-    while (await this.isTagExists(uniqueTag)) {
-      uniqueTag = `${baseTag}-${suffix}`;
-      suffix++;
-    }
+      // 2️⃣ Hash della password (se presente)
+      const password_hash = await this.hashPasswordIfRequired(dto);
 
-    // 2️⃣ Hash della password (se presente)
-    let password_hash = null;
-    if (dto.requirePassword && dto.password) {
-      password_hash = await bcrypt.hash(dto.password, 10);
-    }
+      // 3️⃣ Creazione del gruppo
+      const group = await this.insertNewGroup(uniqueTag, dto, password_hash);
 
-    // 3️⃣ Creazione del gruppo
-    const { data: groupData, error: groupError } = await this.supabaseService
-      .getClient()
-      .from('groups')
-      .insert({
-        name: dto.name,
-        tag: uniqueTag,
-        require_password: dto.requirePassword ?? false,
-        password_hash,
-      })
-      .select()
-      .single();
+      // 4️⃣ Aggiunta dell'admin al gruppo
+      await this.addAdminToGroup(userId, group.id);
 
-    if (groupError) {
-      throw new Error(
-        `Errore durante la creazione del gruppo: ${groupError.message}`,
+      return {
+        message: 'Gruppo creato con successo',
+        group,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Errore durante la creazione del gruppo: ${error.message}`,
       );
     }
-
-    // 4️⃣ Aggiunta dell'admin al gruppo
-    const { error: memberError } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .insert({
-        user_id: userId,
-        group_id: groupData.id,
-        role: 'admin',
-      });
-
-    if (memberError) {
-      throw new Error(`Errore nell'aggiungere l'admin: ${memberError.message}`);
-    }
-
-    return {
-      message: 'Gruppo creato con successo',
-      group: {
-        ...groupData,
-      },
-    };
   }
 
   /**
@@ -120,140 +87,34 @@ export class GroupsService {
     groupId: string,
     userId: string,
   ): Promise<GroupDetails> {
-    const supabase = this.supabaseService.getClient();
+    // Verifica se l'utente è membro del gruppo e recupera il ruolo
+    const userRole = await this.fetchUserRoleInGroup(groupId, userId);
 
-    // 1️⃣ Verifica se l'utente è membro del gruppo
-    const { data: memberData } = await supabase
-      .from('group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Recupera informazioni di base del gruppo
+    const groupData = await this.fetchGroupBasicInfo(groupId);
 
-    if (!memberData) {
-      throw new ForbiddenException('❌ Non sei membro di questo gruppo');
-    }
+    // Recupera membri del gruppo con i loro dettagli
+    const { members, membersCount } = await this.fetchGroupMembers(groupId);
 
-    // 2️⃣ Recuperiamo i dati del gruppo
-    const { data: groupData } = await supabase
-      .from('groups')
-      .select('id, name, tag, require_password, created_at')
-      .eq('id', groupId)
-      .maybeSingle();
+    // Recupera log delle spese del gruppo
+    const expenses = await this.fetchGroupExpenses(groupId);
 
-    if (!groupData) {
-      throw new NotFoundException(`❌ Gruppo non trovato: ${groupId}`);
-    }
+    // Recupera e calcola i bilanci del gruppo
+    const { balances, balanceMap } =
+      await this.fetchAndCalculateBalances(groupId);
 
-    // 3️⃣ Recuperiamo i membri del gruppo con dettagli utente
-    const { data: membersData, error: membersError } = await supabase
-      .from('group_members')
-      .select(
-        `
-      user_id, role, joined_at,
-      profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
-    `,
-      )
-      .eq('group_id', groupId);
-
-    if (membersError) {
-      throw new InternalServerErrorException(
-        `❌ Errore nel recupero dei membri: ${membersError.message}`,
-      );
-    }
-
-    // 4️⃣ Formattiamo i dati dei membri
-    const members = (membersData || []).map((member) => {
-      const profile = Array.isArray(member.profiles)
-        ? member.profiles[0]
-        : member.profiles;
-
-      return {
-        id: profile?.id || member.user_id,
-        first_name: profile?.first_name || '',
-        last_name: profile?.last_name || '',
-        full_name: profile?.full_name || 'Utente sconosciuto',
-        role: member.role,
-        joined_at: member.joined_at,
-        phone_number: profile?.phone_number || null,
-        avatar_url: profile?.avatar_url || null,
-        balance: 0, // Lo aggiorneremo dopo
-      };
-    });
-
-    // 5️⃣ Recuperiamo il log delle spese del gruppo
-    const { data: expensesData } = await supabase
-      .from('expenses_log')
-      .select('*')
-      .eq('group_id', groupId);
-
-    const expenses = expensesData || [];
-
-    // 6️⃣ Recuperiamo i bilanci del gruppo
-    const { data: balancesData } = await supabase
-      .from('group_balances')
-      .select('payer_id, user_id, amount')
-      .eq('group_id', groupId);
-
-    const balances = balancesData || [];
-
-    // 7️⃣ Calcoliamo il saldo di ogni membro
-    const balanceMap: { [key: string]: number } = {};
-
-    balances.forEach(({ payer_id, user_id, amount }) => {
-      if (!balanceMap[payer_id]) balanceMap[payer_id] = 0;
-      if (!balanceMap[user_id]) balanceMap[user_id] = 0;
-
-      balanceMap[user_id] -= amount; // L'utente ha un debito
-      balanceMap[payer_id] += amount; // Il payer ha un credito
-    });
-
-    // 8️⃣ Assegniamo i saldi ai membri
-    members.forEach((member) => {
-      member.balance = balanceMap[member.id] || 0;
-    });
-
-    // 9️⃣ Recuperiamo le richieste di accesso in sospeso con dettagli utente
-    const { data: joinRequestsData, error: joinRequestsError } = await supabase
-      .from('group_join_requests')
-      .select(
-        `
-    id,
-    user_id,
-    created_at,
-    profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
-  `,
-      )
-      .eq('group_id', groupId)
-      .eq('status', 'pending');
-
-    if (joinRequestsError) {
-      throw new Error(
-        `Errore nel recupero delle richieste di accesso: ${joinRequestsError.message}`,
-      );
-    }
-
-    // Mappiamo i dati per includere le informazioni del profilo utente
-    const join_requests: GroupInvite[] = (joinRequestsData || []).map(
-      (request) => {
-        const profile = Array.isArray(request.profiles)
-          ? request.profiles[0]
-          : request.profiles;
-
-        return {
-          id: request.id,
-          created_at: request.created_at,
-          user_info: {
-            id: profile?.id || request.user_id,
-            first_name: profile?.first_name || '',
-            last_name: profile?.last_name || '',
-            full_name: profile?.full_name || '',
-            phone_number: profile?.phone_number || null,
-            avatar_url: profile?.avatar_url || null,
-          },
-        };
-      },
+    // Assegna i saldi ai membri
+    const membersWithBalances = this.assignBalancesToMembers(
+      members,
+      balanceMap,
     );
+
+    // Recupera le richieste di accesso al gruppo
+    const joinRequests = await this.fetchGroupJoinRequests(groupId, userRole);
+
+    // Trova l'admin ID
+    const adminId =
+      membersWithBalances.find((m) => m.role === 'admin')?.id || null;
 
     return {
       id: groupData.id,
@@ -261,13 +122,13 @@ export class GroupsService {
       tag: groupData.tag,
       require_password: groupData.require_password,
       created_at: groupData.created_at,
-      user_role: memberData.role,
-      admin_id: members.find((m) => m.role === 'admin')?.id || null,
-      members_count: members.length,
-      members,
+      user_role: userRole,
+      admin_id: adminId,
+      members_count: membersCount,
+      members: membersWithBalances,
       expenses,
       balances,
-      join_requests,
+      join_requests: joinRequests,
     };
   }
 
@@ -329,7 +190,31 @@ export class GroupsService {
     return { message: 'Aggiunto con successo' };
   }
 
-  // Funzione per verificare se un tag esiste già
+  // ==================== METODI PRIVATI ====================
+
+  /**
+   * Genera un tag univoco basato sul nome del gruppo
+   */
+  private async generateUniqueTag(groupName: string): Promise<string> {
+    const baseTag = groupName
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-]/g, '');
+
+    let uniqueTag = baseTag;
+    let suffix = 1;
+
+    while (await this.isTagExists(uniqueTag)) {
+      uniqueTag = `${baseTag}-${suffix}`;
+      suffix++;
+    }
+
+    return uniqueTag;
+  }
+
+  /**
+   * Verifica se un tag esiste già
+   */
   private async isTagExists(tag: string): Promise<boolean> {
     const { data: existingTag } = await this.supabaseService
       .getClient()
@@ -338,5 +223,254 @@ export class GroupsService {
       .eq('tag', tag)
       .single();
     return !!existingTag;
+  }
+
+  /**
+   * Genera l'hash della password se richiesto
+   */
+  private async hashPasswordIfRequired(
+    dto: CreateGroupDto,
+  ): Promise<string | null> {
+    if (dto.requirePassword && dto.password) {
+      return bcrypt.hash(dto.password, 10);
+    }
+    return null;
+  }
+
+  /**
+   * Inserisce un nuovo gruppo nel database
+   */
+  private async insertNewGroup(
+    tag: string,
+    dto: CreateGroupDto,
+    passwordHash: string | null,
+  ) {
+    const { data: groupData, error: groupError } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .insert({
+        name: dto.name,
+        tag: tag,
+        require_password: dto.requirePassword ?? false,
+        password_hash: passwordHash,
+      })
+      .select()
+      .single();
+
+    if (groupError) {
+      throw new Error(
+        `Errore durante la creazione del gruppo: ${groupError.message}`,
+      );
+    }
+
+    return groupData;
+  }
+
+  /**
+   * Aggiunge l'utente creatore come admin del gruppo
+   */
+  private async addAdminToGroup(userId: string, groupId: string) {
+    const { error: memberError } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .insert({
+        user_id: userId,
+        group_id: groupId,
+        role: 'admin',
+      });
+
+    if (memberError) {
+      throw new Error(`Errore nell'aggiungere l'admin: ${memberError.message}`);
+    }
+  }
+
+  /**
+   * Recupera le informazioni di base del gruppo
+   */
+  private async fetchGroupBasicInfo(groupId: string) {
+    const { data: groupData, error } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .select('id, name, tag, require_password, created_at')
+      .eq('id', groupId)
+      .maybeSingle();
+
+    if (error || !groupData) {
+      throw new NotFoundException(`❌ Gruppo non trovato: ${groupId}`);
+    }
+
+    return groupData;
+  }
+
+  /**
+   * Verifica e recupera il ruolo dell'utente nel gruppo
+   */
+  private async fetchUserRoleInGroup(
+    groupId: string,
+    userId: string,
+  ): Promise<string> {
+    const { data: memberData, error } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error || !memberData) {
+      throw new ForbiddenException('❌ Non sei membro di questo gruppo');
+    }
+
+    return memberData.role;
+  }
+
+  /**
+   * Recupera i membri del gruppo con i loro dettagli
+   */
+  private async fetchGroupMembers(groupId: string) {
+    const { data: membersData, error: membersError } =
+      await this.supabaseService
+        .getClient()
+        .from('group_members')
+        .select(
+          `
+        user_id, role, joined_at,
+        profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
+        `,
+        )
+        .eq('group_id', groupId);
+
+    if (membersError) {
+      throw new InternalServerErrorException(
+        `❌ Errore nel recupero dei membri: ${membersError.message}`,
+      );
+    }
+
+    // Formatta i dati dei membri
+    const members = (membersData || []).map((member) => {
+      const profile = Array.isArray(member.profiles)
+        ? member.profiles[0]
+        : member.profiles;
+
+      return {
+        id: profile?.id || member.user_id,
+        first_name: profile?.first_name || '',
+        last_name: profile?.last_name || '',
+        full_name: profile?.full_name || 'Utente sconosciuto',
+        role: member.role,
+        joined_at: member.joined_at,
+        phone_number: profile?.phone_number || null,
+        avatar_url: profile?.avatar_url || null,
+        balance: 0, // Verrà aggiornato successivamente
+      };
+    });
+
+    return { members, membersCount: members.length };
+  }
+
+  /**
+   * Recupera le spese del gruppo
+   */
+  private async fetchGroupExpenses(groupId: string) {
+    const { data: expensesData } = await this.supabaseService
+      .getClient()
+      .from('expenses_log')
+      .select('*')
+      .eq('group_id', groupId);
+
+    return expensesData || [];
+  }
+
+  /**
+   * Recupera e calcola i bilanci del gruppo
+   */
+  private async fetchAndCalculateBalances(groupId: string) {
+    const { data: balancesData } = await this.supabaseService
+      .getClient()
+      .from('group_balances')
+      .select('payer_id, user_id, amount')
+      .eq('group_id', groupId);
+
+    const balances = balancesData || [];
+
+    // Calcola il saldo di ogni membro
+    const balanceMap: { [key: string]: number } = {};
+
+    balances.forEach(({ payer_id, user_id, amount }) => {
+      if (!balanceMap[payer_id]) balanceMap[payer_id] = 0;
+      if (!balanceMap[user_id]) balanceMap[user_id] = 0;
+
+      balanceMap[user_id] -= amount; // L'utente ha un debito
+      balanceMap[payer_id] += amount; // Il payer ha un credito
+    });
+
+    return { balances, balanceMap };
+  }
+
+  /**
+   * Assegna i saldi ai membri
+   */
+  private assignBalancesToMembers(
+    members: Profile[],
+    balanceMap: { [key: string]: number },
+  ): Profile[] {
+    return members.map((member) => ({
+      ...member,
+      balance: balanceMap[member.id] || 0,
+    }));
+  }
+
+  /**
+   * Recupera le richieste di accesso al gruppo
+   */
+  private async fetchGroupJoinRequests(
+    groupId: string,
+    userRole: string,
+  ): Promise<GroupInvite[]> {
+    // Solo gli admin possono vedere le richieste di accesso
+    if (userRole !== 'admin') {
+      return [];
+    }
+
+    const { data: joinRequestsData, error: joinRequestsError } =
+      await this.supabaseService
+        .getClient()
+        .from('group_join_requests')
+        .select(
+          `
+        id,
+        user_id,
+        created_at,
+        profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
+        `,
+        )
+        .eq('group_id', groupId)
+        .eq('status', 'pending');
+
+    if (joinRequestsError) {
+      throw new InternalServerErrorException(
+        `Errore nel recupero delle richieste di accesso: ${joinRequestsError.message}`,
+      );
+    }
+
+    // Mappa i dati delle richieste di accesso
+    return (joinRequestsData || []).map((request) => {
+      const profile = Array.isArray(request.profiles)
+        ? request.profiles[0]
+        : request.profiles;
+
+      return {
+        id: request.id,
+        created_at: request.created_at,
+        user_info: {
+          id: profile?.id || request.user_id,
+          first_name: profile?.first_name || '',
+          last_name: profile?.last_name || '',
+          full_name: profile?.full_name || '',
+          phone_number: profile?.phone_number || null,
+          avatar_url: profile?.avatar_url || null,
+        },
+      };
+    });
   }
 }
