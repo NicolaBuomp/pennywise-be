@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsIn } from 'class-validator';
 
 export class UpdateRoleDto {
   @IsString()
@@ -10,6 +10,6 @@ export class UpdateRoleDto {
   user_id: string;
 
   @IsString()
-  @IsNotEmpty()
-  role: 'admin' | 'member' | 'viewer';
+  @IsIn(['admin', 'member'])
+  role: 'admin' | 'member';
 }

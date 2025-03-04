@@ -12,10 +12,18 @@ import { GroupDetails, GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { CreateInviteDto } from './dto/create-invite.dto';
+import { GroupMembersService } from './services/group-members.service';
+import { GroupInvitesService } from './services/group-invites.service';
+import { GroupJoinRequestsService } from './services/group-join-requests.service';
 
 @Controller('groups')
 export class GroupsController {
-  constructor(private readonly groupsService: GroupsService) {}
+  constructor(
+    private readonly groupsService: GroupsService,
+    private readonly groupMembersService: GroupMembersService,
+    private readonly groupInvitesService: GroupInvitesService,
+    private readonly groupJoinRequestsService: GroupJoinRequestsService,
+  ) {}
 
   @Post()
   async createGroup(@Body() dto: CreateGroupDto, @Request() req) {
@@ -52,7 +60,7 @@ export class GroupsController {
     @Body() dto: CreateInviteDto,
     @Request() req,
   ) {
-    return this.groupsService.createInvite(groupId, req.user.id, dto);
+    return this.groupInvitesService.createInvite(groupId, dto);
   }
 
   @Post('join-by-token/:inviteToken')
@@ -62,7 +70,7 @@ export class GroupsController {
 
   @Patch('update-role')
   async updateUserRole(@Body() dto: UpdateRoleDto) {
-    return this.groupsService.updateUserRole(dto);
+    return this.groupMembersService.updateUserRole(dto);
   }
 
   @Post(':groupId/remove-user/:userId')
@@ -71,28 +79,29 @@ export class GroupsController {
     @Param('userId') userId: string,
     @Request() req,
   ) {
-    return this.groupsService.removeUser(groupId, userId, req.user.id);
+    return this.groupMembersService.removeUser(groupId, userId, req.user.id);
   }
 
   @Post('join-by-tag/:groupTag')
   async createJoinRequest(@Param('groupTag') groupTag: string, @Request() req) {
-    console.log(groupTag);
-    return this.groupsService.createJoinRequest(groupTag, req.user.id);
+    return this.groupJoinRequestsService.createJoinRequest(
+      groupTag,
+      req.user.id,
+    );
   }
 
   @Get(':groupId/join-requests')
   async getJoinRequests(@Param('groupId') groupId: string, @Request() req) {
-    return this.groupsService.getJoinRequests(groupId, req.user.id);
+    return this.groupJoinRequestsService.getJoinRequests(groupId, req.user.id);
   }
 
   @Patch(':groupId/join-requests/:requestId')
   async updateJoinRequestStatus(
-    @Param('groupId') groupId: string,
     @Param('requestId') requestId: string,
     @Body() body: { status: 'approved' | 'denied' },
     @Request() req,
   ) {
-    return this.groupsService.updateJoinRequestStatus(
+    return this.groupJoinRequestsService.updateJoinRequestStatus(
       requestId,
       body.status,
       req.user.id,

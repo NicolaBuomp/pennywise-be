@@ -6,17 +6,10 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
-import { v4 as uuidv4 } from 'uuid';
 import { CreateGroupDto } from './dto/create-group.dto';
-import { CreateInviteDto } from './dto/create-invite.dto';
-import { UpdateRoleDto } from './dto/update-role.dto';
 import * as bcrypt from 'bcrypt';
-
-interface GroupInvite {
-  id: string;
-  created_at: string;
-  user_info: Profile;
-}
+import { GroupMembersService } from './services/group-members.service';
+import { GroupInvitesService } from './services/group-invites.service';
 
 interface Profile {
   id: string;
@@ -25,6 +18,12 @@ interface Profile {
   full_name: string;
   phone_number: string;
   avatar_url: string;
+}
+
+interface GroupInvite {
+  id: string;
+  created_at: string;
+  user_info: Profile;
 }
 
 export interface GroupDetails {
@@ -44,7 +43,11 @@ export interface GroupDetails {
 
 @Injectable()
 export class GroupsService {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    private readonly groupMembersService: GroupMembersService,
+    private readonly groupInvitesService: GroupInvitesService,
+  ) {}
 
   /**
    * Crea un nuovo gruppo e aggiunge automaticamente l'admin e il fondo spese
@@ -292,6 +295,7 @@ export class GroupsService {
 
     return groups;
   }
+
   /**
    * Cerca un gruppo tramite il suo TAG
    */
@@ -300,65 +304,21 @@ export class GroupsService {
       throw new BadRequestException('Il TAG non può essere vuoto');
     }
 
-    // 1. Cerchiamo il gruppo
-    const { data: group, error: groupError } = await this.supabaseService
+    const { data: group } = await this.supabaseService
       .getClient()
       .from('groups')
       .select('*')
       .eq('tag', tag)
-      .maybeSingle(); // 🔹 Usiamo `.maybeSingle()` per non generare errore se non ci sono risultati
-
-    // 2. Se non troviamo il gruppo, restituiamo un messaggio chiaro
-    if (!group) {
-      return null;
-    }
+      .maybeSingle();
 
     return group;
-  }
-
-  /**
-   * Crea un invito con token
-   */
-  async createInvite(groupId: string, userId: string, dto: CreateInviteDto) {
-    const inviteToken = uuidv4();
-    const expiresAt = new Date(
-      Date.now() + (dto.expiresInHours ?? 24) * 3600 * 1000,
-    );
-
-    const { error } = await this.supabaseService
-      .getClient()
-      .from('group_invites')
-      .insert({
-        group_id: groupId,
-        invite_token: inviteToken,
-        expires_at: expiresAt.toISOString(),
-      });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return { inviteToken, expiresAt };
   }
 
   /**
    * Unisce un utente a un gruppo tramite invito
    */
   async joinGroup(inviteToken: string, userId: string) {
-    const { data: invite } = await this.supabaseService
-      .getClient()
-      .from('group_invites')
-      .select('*')
-      .eq('invite_token', inviteToken)
-      .single();
-
-    if (!invite) {
-      throw new NotFoundException('Invito non valido');
-    }
-
-    if (new Date(invite.expires_at) < new Date()) {
-      throw new BadRequestException('Invito scaduto');
-    }
+    const invite = await this.groupInvitesService.validateInvite(inviteToken);
 
     await this.supabaseService.getClient().from('group_members').insert({
       user_id: userId,
@@ -367,163 +327,6 @@ export class GroupsService {
     });
 
     return { message: 'Aggiunto con successo' };
-  }
-
-  /**
-   * Rimuove un utente dal gruppo
-   */
-  async removeUser(groupId: string, userId: string, adminId: string) {
-    const { data: adminCheck } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', adminId)
-      .single();
-
-    if (adminCheck?.role !== 'admin') {
-      throw new ForbiddenException('Solo gli admin possono rimuovere utenti');
-    }
-
-    await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .delete()
-      .eq('group_id', groupId)
-      .eq('user_id', userId);
-  }
-
-  /**
-   * Aggiorna il ruolo di un membro
-   */
-  async updateUserRole(dto: UpdateRoleDto) {
-    await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .update({ role: dto.role })
-      .eq('group_id', dto.group_id)
-      .eq('user_id', dto.user_id);
-  }
-
-  // 1️⃣ Gli utenti possono fare richiesta di ingresso a un gruppo tramite tag
-  async createJoinRequest(groupTag: string, userId: string) {
-    console.log(groupTag, 'groupTag');
-    // 1. Trova il gruppo tramite il tag
-    const { data: group, error: groupError } = await this.supabaseService
-      .getClient()
-      .from('groups')
-      .select('id')
-      .eq('tag', groupTag)
-      .single();
-
-    if (groupError || !group) {
-      throw new NotFoundException('Gruppo non trovato');
-    }
-
-    console.log(group);
-
-    // 2. Crea la richiesta di ingresso (stato 'pending')
-    const { data: request, error: requestError } = await this.supabaseService
-      .getClient()
-      .from('group_join_requests')
-      .insert({
-        group_id: group.id,
-        user_id: userId,
-        status: 'pending',
-      })
-      .select()
-      .single();
-
-    if (requestError) {
-      throw new Error('Errore nella creazione della richiesta di ingresso');
-    }
-
-    return request;
-  }
-
-  // 2️⃣ Recupera tutte le richieste di ingresso di un gruppo (solo admin)
-  async getJoinRequests(groupId: string, userId: string) {
-    // Verifica che l'utente sia un admin del gruppo
-    const { data: adminCheck, error: adminError } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', userId)
-      .single();
-
-    if (adminError || adminCheck?.role !== 'admin') {
-      throw new ForbiddenException('Solo un admin può vedere le richieste');
-    }
-
-    // Ottieni tutte le richieste per quel gruppo
-    const { data: joinRequests, error: requestsError } =
-      await this.supabaseService
-        .getClient()
-        .from('group_join_requests')
-        .select('user_id, status, created_at')
-        .eq('group_id', groupId);
-
-    if (requestsError) {
-      throw new Error('Errore nel recupero delle richieste di ingresso');
-    }
-
-    return joinRequests;
-  }
-
-  // 3️⃣ Approva o rifiuta una richiesta di ingresso
-  async updateJoinRequestStatus(
-    requestId: string,
-    status: 'approved' | 'denied',
-    adminId: string,
-  ) {
-    // Verifica che l'utente sia un admin
-    const { data: request, error: requestError } = await this.supabaseService
-      .getClient()
-      .from('group_join_requests')
-      .select('group_id, user_id')
-      .eq('id', requestId)
-      .single();
-
-    if (requestError || !request) {
-      throw new NotFoundException('Richiesta di ingresso non trovata');
-    }
-
-    const { data: adminCheck, error: adminError } = await this.supabaseService
-      .getClient()
-      .from('group_members')
-      .select('role')
-      .eq('group_id', request.group_id)
-      .eq('user_id', adminId)
-      .single();
-
-    if (adminError || adminCheck?.role !== 'admin') {
-      throw new ForbiddenException(
-        'Solo un admin può approvare o rifiutare le richieste',
-      );
-    }
-
-    // 4. Approva o rifiuta la richiesta
-    const { error: updateError } = await this.supabaseService
-      .getClient()
-      .from('group_join_requests')
-      .update({ status })
-      .eq('id', requestId);
-
-    if (updateError) {
-      throw new Error("Errore nell'approvare o rifiutare la richiesta");
-    }
-
-    // 5. Se approvata, aggiungi l'utente al gruppo
-    if (status === 'approved') {
-      await this.supabaseService.getClient().from('group_members').insert({
-        user_id: request.user_id,
-        group_id: request.group_id,
-        role: 'member', // Aggiungi come membro
-      });
-    }
-
-    return { message: `La richiesta è stata ${status}` };
   }
 
   // Funzione per verificare se un tag esiste già
