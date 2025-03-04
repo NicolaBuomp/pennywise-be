@@ -7,6 +7,7 @@ import {
   Body,
   Request,
   NotFoundException,
+  Delete,
 } from '@nestjs/common';
 import { GroupDetails, GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
@@ -15,6 +16,7 @@ import { CreateInviteDto } from './dto/create-invite.dto';
 import { GroupMembersService } from './services/group-members.service';
 import { GroupInvitesService } from './services/group-invites.service';
 import { GroupJoinRequestsService } from './services/group-join-requests.service';
+import { UpdateGroupDto } from './dto/update-group.dto';
 
 @Controller('groups')
 export class GroupsController {
@@ -43,12 +45,23 @@ export class GroupsController {
     return this.groupsService.getGroupDetails(groupId, req.user.id);
   }
 
-  @Get('tag/:tag')
-  async searchGroupByTag(@Param('tag') tag: string) {
-    const group = await this.groupsService.searchGroupByTag(tag);
+  @Patch(':groupId')
+  async updateGroup(
+    @Param('groupId') groupId: string,
+    @Body() updateGroupDto: UpdateGroupDto,
+    @Request() req,
+  ) {
+    return this.groupsService.updateGroup(groupId, updateGroupDto, req.user.id);
+  }
+
+  @Post('search-by-tag')
+  async searchGroupByTag(@Body() body: { tag: string }) {
+    const group = await this.groupsService.searchGroupByTag(body.tag);
 
     if (!group) {
-      throw new NotFoundException(`Nessun gruppo trovato con il TAG: ${tag}`);
+      throw new NotFoundException(
+        `Nessun gruppo trovato con il TAG: ${body.tag}`,
+      );
     }
 
     return group;
@@ -82,10 +95,10 @@ export class GroupsController {
     return this.groupMembersService.removeUser(groupId, userId, req.user.id);
   }
 
-  @Post('join-by-tag/:groupTag')
-  async createJoinRequest(@Param('groupTag') groupTag: string, @Request() req) {
+  @Post('join-by-id/:groupId')
+  async createJoinRequest(@Param('groupId') groupId: string, @Request() req) {
     return this.groupJoinRequestsService.createJoinRequest(
-      groupTag,
+      groupId,
       req.user.id,
     );
   }
@@ -106,5 +119,10 @@ export class GroupsController {
       body.status,
       req.user.id,
     );
+  }
+
+  @Delete('delete/:groupId')
+  async deleteGroup(@Param('groupId') groupId: string, @Request() req: any) {
+    return this.groupsService.deleteGroup(groupId, req.user.id);
   }
 }

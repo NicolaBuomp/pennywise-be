@@ -10,6 +10,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import * as bcrypt from 'bcrypt';
 import { GroupMembersService } from './services/group-members.service';
 import { GroupInvitesService } from './services/group-invites.service';
+import { UpdateGroupDto } from './dto/update-group.dto';
 
 interface Profile {
   id: string;
@@ -26,6 +27,7 @@ interface Profile {
 interface GroupInvite {
   id: string;
   created_at: string;
+  status: string;
   user_info: Profile;
 }
 
@@ -133,6 +135,63 @@ export class GroupsService {
   }
 
   /**
+   * Aggiorna i dettagli di un gruppo
+   * Solo gli admin possono modificare un gruppo
+   */
+  async updateGroup(groupId: string, dto: UpdateGroupDto, userId: string) {
+    // Verifica che l'utente richiedente sia admin del gruppo
+    const userRole = await this.fetchUserRoleInGroup(groupId, userId);
+
+    if (userRole !== 'admin') {
+      throw new ForbiddenException(
+        'Solo gli admin possono modificare il gruppo',
+      );
+    }
+
+    const updateData: any = {};
+
+    // Aggiorna solo i campi forniti
+    if (dto.name !== undefined) {
+      updateData.name = dto.name;
+
+      // Rigenera il tag basandosi sul nuovo nome
+      updateData.tag = await this.generateUniqueTag(dto.name);
+    }
+
+    if (dto.requirePassword !== undefined) {
+      updateData.require_password = dto.requirePassword;
+
+      // Se requirePassword è true e c'è una password, aggiorna l'hash
+      if (dto.requirePassword && dto.password) {
+        updateData.password_hash = await bcrypt.hash(dto.password, 10);
+      }
+      // Se requirePassword è false, rimuovi la password
+      else if (!dto.requirePassword) {
+        updateData.password_hash = null;
+      }
+    }
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('groups')
+      .update(updateData)
+      .eq('id', groupId)
+      .select()
+      .single();
+
+    if (error) {
+      throw new BadRequestException(
+        `Errore nell'aggiornamento del gruppo: ${error.message}`,
+      );
+    }
+
+    return {
+      message: 'Gruppo aggiornato con successo',
+      group: data,
+    };
+  }
+
+  /**
    * Recupera tutti i gruppi di cui un utente fa parte
    */
   async getUserGroups(userId: string) {
@@ -165,11 +224,14 @@ export class GroupsService {
       throw new BadRequestException('Il TAG non può essere vuoto');
     }
 
+    // Converti sempre il tag in lowercase per la ricerca
+    const normalizedTag = tag.toLowerCase().trim();
+
     const { data: group } = await this.supabaseService
       .getClient()
       .from('groups')
       .select('*')
-      .eq('tag', tag)
+      .ilike('tag', normalizedTag)
       .maybeSingle();
 
     return group;
@@ -190,23 +252,83 @@ export class GroupsService {
     return { message: 'Aggiunto con successo' };
   }
 
-  // ==================== METODI PRIVATI ====================
+  /**
+   * Elimina un gruppo e tutti i suoi dati associati
+   * Solo gli admin possono eliminare un gruppo
+   */
+  async deleteGroup(groupId: string, userId: string) {
+    try {
+      // Verifica che l'utente richiedente sia admin del gruppo
+      const userRole = await this.fetchUserRoleInGroup(groupId, userId);
 
+      if (userRole !== 'admin') {
+        throw new ForbiddenException(
+          'Solo gli admin possono eliminare un gruppo',
+        );
+      }
+
+      // Esegue l'eliminazione di tutte le entità collegate
+      await this.deleteGroupRelatedData(groupId);
+
+      // Elimina il gruppo stesso
+      const { error: deleteError } = await this.supabaseService
+        .getClient()
+        .from('groups')
+        .delete()
+        .eq('id', groupId);
+
+      if (deleteError) {
+        throw new Error(
+          `Errore nell'eliminazione del gruppo: ${deleteError.message}`,
+        );
+      }
+
+      return { message: 'Gruppo eliminato con successo' };
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Errore durante l'eliminazione del gruppo: ${error.message}`,
+      );
+    }
+  }
+
+  // ==================== METODI PRIVATI ====================
   /**
    * Genera un tag univoco basato sul nome del gruppo
+   * Formato: [PRIMA-PAROLA]#[numero-casuale]
    */
   private async generateUniqueTag(groupName: string): Promise<string> {
-    const baseTag = groupName
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9\-]/g, '');
+    // Estrai la prima parola significativa del nome (min 3 caratteri)
+    const words = groupName.toLowerCase().split(/\s+/);
+    let baseWord = words[0];
 
-    let uniqueTag = baseTag;
-    let suffix = 1;
+    // Se la prima parola è troppo corta, prova a usare la seconda o concatena
+    if (baseWord.length < 3 && words.length > 1) {
+      baseWord = words[0] + words[1];
+    }
 
-    while (await this.isTagExists(uniqueTag)) {
-      uniqueTag = `${baseTag}-${suffix}`;
-      suffix++;
+    // Rimuovi caratteri speciali e mantieni solo lettere e numeri
+    baseWord = baseWord.replace(/[^a-z0-9]/g, '');
+
+    // Mantieni il baseWord in lowercase
+    baseWord = baseWord.toLowerCase();
+
+    // Genera un numero casuale a 4 cifre
+    function generateRandomSuffix(): string {
+      return Math.floor(1000 + Math.random() * 9000).toString();
+    }
+
+    // Prova a generare un tag univoco con massimo 5 tentativi
+    let attempts = 0;
+    let uniqueTag = '';
+    let isUnique = false;
+
+    while (!isUnique && attempts < 5) {
+      uniqueTag = `${baseWord}#${generateRandomSuffix()}`;
+      isUnique = !(await this.isTagExists(uniqueTag));
+      attempts++;
     }
 
     return uniqueTag;
@@ -441,6 +563,7 @@ export class GroupsService {
         id,
         user_id,
         created_at,
+        status,
         profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
         `,
         )
@@ -462,6 +585,7 @@ export class GroupsService {
       return {
         id: request.id,
         created_at: request.created_at,
+        status: request.status,
         user_info: {
           id: profile?.id || request.user_id,
           first_name: profile?.first_name || '',
@@ -472,5 +596,30 @@ export class GroupsService {
         },
       };
     });
+  }
+
+  /**
+   * Elimina tutte le entità associate a un gruppo
+   */
+  private async deleteGroupRelatedData(groupId: string) {
+    const client = this.supabaseService.getClient();
+
+    // Elimina tutti i membri del gruppo
+    await client.from('group_members').delete().eq('group_id', groupId);
+
+    // Elimina tutti gli inviti pendenti
+    await client.from('group_invites').delete().eq('group_id', groupId);
+
+    // Elimina tutte le richieste di accesso
+    await client.from('group_join_requests').delete().eq('group_id', groupId);
+
+    // Elimina tutte le spese associate
+    await client.from('expenses_log').delete().eq('group_id', groupId);
+
+    // Elimina tutti i bilanci del gruppo
+    await client.from('group_balances').delete().eq('group_id', groupId);
+
+    // Elimina tutte le liste della spesa associate
+    await client.from('shopping_lists').delete().eq('group_id', groupId);
   }
 }

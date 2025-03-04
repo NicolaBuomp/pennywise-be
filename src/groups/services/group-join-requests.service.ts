@@ -10,27 +10,56 @@ export class GroupJoinRequestsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   /**
-   * Gli utenti possono fare richiesta di ingresso a un gruppo tramite tag
+   * Gli utenti possono fare richiesta di ingresso a un gruppo usando il suo ID
    */
-  async createJoinRequest(groupTag: string, userId: string) {
-    // 1. Trova il gruppo tramite il tag
+  async createJoinRequest(groupId: string, userId: string) {
+    // 1. Verifica che il gruppo esista
     const { data: group, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
       .select('id')
-      .eq('tag', groupTag)
+      .eq('id', groupId)
       .single();
 
     if (groupError || !group) {
       throw new NotFoundException('Gruppo non trovato');
     }
 
-    // 2. Crea la richiesta di ingresso (stato 'pending')
+    // 2. Verifica che l'utente non sia già membro del gruppo
+    const { data: existingMember } = await this.supabaseService
+      .getClient()
+      .from('group_members')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existingMember) {
+      throw new ForbiddenException('Sei già membro di questo gruppo');
+    }
+
+    // 3. Verifica che non ci sia già una richiesta pendente
+    const { data: existingRequest } = await this.supabaseService
+      .getClient()
+      .from('group_join_requests')
+      .select('id, status')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (existingRequest) {
+      throw new ForbiddenException(
+        'Hai già una richiesta di ingresso pendente per questo gruppo',
+      );
+    }
+
+    // 4. Crea la richiesta di ingresso (stato 'pending')
     const { data: request, error: requestError } = await this.supabaseService
       .getClient()
       .from('group_join_requests')
       .insert({
-        group_id: group.id,
+        group_id: groupId,
         user_id: userId,
         status: 'pending',
       })
@@ -41,7 +70,10 @@ export class GroupJoinRequestsService {
       throw new Error('Errore nella creazione della richiesta di ingresso');
     }
 
-    return request;
+    return {
+      message: 'Richiesta di ingresso creata con successo',
+      request,
+    };
   }
 
   /**
