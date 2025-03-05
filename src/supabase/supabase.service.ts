@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  createClient,
+  SupabaseClient,
+  PostgrestResponse,
+} from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -13,131 +17,95 @@ export class SupabaseService {
     );
   }
 
-  getClient(): SupabaseClient {
-    return this.supabase;
-  }
-
-  async authVerifyToken(token: string) {
-    return this.supabase.auth.getUser(token);
+  // Espongo direttamente l'oggetto auth di Supabase
+  get auth() {
+    return this.supabase.auth;
   }
 
   /**
-   * Recupera i dati di un utente combinando i dati da auth.users e user-preferences
+   * Recupera un utente dalla tabella auth.users (o users) in base al suo ID.
    */
   async getUserById(userId: string) {
-    try {
-      // Recupera i dati utente da auth.users
-      const { data: authData, error: authError } =
-        await this.supabase.auth.admin.getUserById(userId);
+    const { data, error }: PostgrestResponse<any> = await this.supabase
+      .from('auth.users')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-      if (authError || !authData?.user) {
-        console.error(
-          `Errore nel recuperare i dati auth per l'utente ${userId}:`,
-          authError,
-        );
-        throw new Error(
-          `Utente non trovato: ${authError?.message || 'ID non valido'}`,
-        );
-      }
-
-      // Recupera le preferenze dell'utente
-      const { data: preferencesData } = await this.supabase
-        .from('user-preferences')
-        .select('language, currency')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      // Estrai metadata utile dall'utente
-      const user = authData.user;
-      const userMetadata = user.user_metadata || {};
-
-      // Combina i dati e restituisci un oggetto compatibile
-      return {
-        id: user.id,
-        email: user.email,
-        first_name: userMetadata.first_name || '',
-        last_name: userMetadata.last_name || '',
-        full_name:
-          `${userMetadata.first_name || ''} ${userMetadata.last_name || ''}`.trim() ||
-          'Utente',
-        phone_number: user.phone || userMetadata.phone_number || null,
-        avatar_url: userMetadata.avatar_url || null,
-        language: preferencesData?.language || 'it',
-        currency: preferencesData?.currency || 'EUR',
-      };
-    } catch (error) {
-      console.error(`Errore nel recuperare l'utente ${userId}:`, error);
-      throw error;
+    if (error) {
+      throw new Error(`Errore nel recupero dell'utente: ${error.message}`);
     }
+    return data;
   }
 
   /**
-   * Recupera più utenti contemporaneamente (per migliorare le performance)
+   * Esegue una query generica su una tabella.
+   * conditions è un oggetto chiave/valore da applicare con eq()
    */
-  async getUsersByIds(userIds: string[]) {
-    if (!userIds || userIds.length === 0) return [];
+  async query(table: string, conditions: { [key: string]: any } = {}) {
+    let query = this.supabase.from(table).select('*');
 
-    // Rimuovi eventuali duplicati
-    const uniqueIds = [...new Set(userIds)];
+    Object.keys(conditions).forEach((key) => {
+      query = query.eq(key, conditions[key]);
+    });
 
-    // Recupera gli utenti uno alla volta (in futuro potremmo ottimizzare con chiamate batch)
-    const users = await Promise.all(
-      uniqueIds.map(async (id) => {
-        try {
-          return await this.getUserById(id);
-        } catch (error) {
-          console.warn(`Impossibile recuperare l'utente ${id}:`, error);
-          // Restituisci un profilo utente generico in caso di errore
-          return {
-            id,
-            email: null,
-            first_name: '',
-            last_name: '',
-            full_name: 'Utente sconosciuto',
-            phone_number: null,
-            avatar_url: null,
-            language: 'it',
-            currency: 'EUR',
-          };
-        }
-      }),
-    );
-
-    return users;
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(`Errore nella query su ${table}: ${error.message}`);
+    }
+    return data;
   }
 
-  async getUserGroups(userId: string) {
-    return this.supabase
-      .from('group_members')
-      .select('group_id, role')
-      .eq('user_id', userId);
+  /**
+   * Inserisce un nuovo record in una tabella.
+   */
+  async insert(table: string, payload: any) {
+    const { data, error } = await this.supabase.from(table).insert(payload);
+    if (error) {
+      throw new Error(`Errore nell'inserimento in ${table}: ${error.message}`);
+    }
+    return data;
   }
 
-  async insertExpense(expenseData: any) {
-    return this.supabase.from('expenses').insert(expenseData);
-  }
+  /**
+   * Aggiorna dei record in una tabella in base alle condizioni fornite.
+   */
+  async update(
+    table: string,
+    payload: any,
+    conditions: { [key: string]: any } = {},
+  ) {
+    let query = this.supabase.from(table).update(payload);
 
-  async updateExpense(expenseId: string, updateData: any) {
-    return this.supabase
-      .from('expenses')
-      .update(updateData)
-      .eq('id', expenseId);
-  }
+    Object.keys(conditions).forEach((key) => {
+      query = query.eq(key, conditions[key]);
+    });
 
-  async deleteExpense(expenseId: string) {
-    return this.supabase.from('expenses').delete().eq('id', expenseId);
-  }
-
-  async getShoppingLists(userId: string) {
-    return this.supabase
-      .from('shopping_lists')
-      .select('*')
-      .eq(
-        'group_id',
-        this.supabase
-          .from('group_members')
-          .select('group_id')
-          .eq('user_id', userId),
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(
+        `Errore nell'aggiornamento di ${table}: ${error.message}`,
       );
+    }
+    return data;
+  }
+
+  /**
+   * Elimina record da una tabella in base alle condizioni fornite.
+   */
+  async delete(table: string, conditions: { [key: string]: any } = {}) {
+    let query = this.supabase.from(table).delete();
+
+    Object.keys(conditions).forEach((key) => {
+      query = query.eq(key, conditions[key]);
+    });
+
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(
+        `Errore nella cancellazione da ${table}: ${error.message}`,
+      );
+    }
+    return data;
   }
 }

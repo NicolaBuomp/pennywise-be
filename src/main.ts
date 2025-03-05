@@ -1,9 +1,11 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './exception-filters/http-exception.filter';
 import { Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import helmet from 'helmet';
+import { HttpExceptionFilter } from './http-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -11,6 +13,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'], // Ridotto rispetto a prima
   });
+
+  const configService = app.get(ConfigService);
+
+  // Middleware di sicurezza
+  app.use(helmet());
 
   // Configura Swagger
   const config = new DocumentBuilder()
@@ -24,18 +31,24 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   // Abilita la validazione a livello globale
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // Rimuove le proprietà non definite nel DTO
+      forbidNonWhitelisted: true, // Lancia errori se vengono inviate proprietà non definite
+      transform: true, // Trasforma automaticamente i tipi primitivi
+    }),
+  );
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // Abilita CORS
   app.enableCors({
-    origin: true,
+    origin: configService.get<string>('CORS_ORIGIN') || '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
 
-  const port = process.env.PORT || 3000;
+  const port = configService.get<number>('PORT') || 3000;
   await app.listen(port);
   logger.log(`Applicazione avviata sulla porta ${port}`);
 }

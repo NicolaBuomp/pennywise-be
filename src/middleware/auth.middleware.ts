@@ -11,34 +11,35 @@ export class AuthMiddleware implements NestMiddleware {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      throw new UnauthorizedException('Authorization token is required');
+    }
+
     try {
-      const authHeader = req.headers['authorization'];
-      if (!authHeader) {
-        throw new UnauthorizedException('Missing Authorization header');
+      const {
+        data: { user },
+        error,
+      } = await this.supabaseService.getClient().auth.getUser(token);
+
+      if (error || !user) {
+        throw new UnauthorizedException('Invalid authorization token');
       }
 
-      const token = authHeader.split(' ')[1];
-      if (!token) {
-        throw new UnauthorizedException('Invalid Authorization header format');
+      // Add user info to request object
+      if (!user.email) {
+        throw new UnauthorizedException('User email is missing');
       }
 
-      // Verify JWT with Supabase
-      const { data, error } = await this.supabaseService.authVerifyToken(token);
-
-      if (error || !data?.user) {
-        throw new UnauthorizedException('Invalid or expired token');
-      }
-
-      // Attach user info to the request object
-      req.user = {
-        id: data.user.id,
-        email: (data.user.email as string) || '',
-        role: (data.user.app_metadata?.role as string) || 'user',
+      req['user'] = {
+        id: user.id,
+        email: user.email,
+        role: user.role || 'defaultRole',
       };
-
       next();
     } catch (error) {
-      next(new UnauthorizedException(error.message));
+      throw new UnauthorizedException('Invalid authorization token');
     }
   }
 }
