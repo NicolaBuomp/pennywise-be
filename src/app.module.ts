@@ -6,12 +6,13 @@ import { ShoppingListModule } from './shopping-list/shopping-list.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { AuthMiddleware } from './middleware/auth.middleware';
 import { ShoppingItemsModule } from './shopping-items/shopping-items.module';
-import { ProfilesModule } from './profiles/profiles.module';
 import { ExpensesController } from './expenses/expenses.controller';
 import { GroupsController } from './groups/groups.controller';
-import { ProfilesController } from './profiles/profiles.controller';
 import { ShoppingItemsController } from './shopping-items/shopping-items.controller';
 import { ShoppingListController } from './shopping-list/shopping-list.controller';
+import { UserPreferencesModule } from './user-preferences/user-preferences.module';
+import { UserPreferencesController } from './user-preferences/user-preferences.controller';
+
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { ShoppingListController } from './shopping-list/shopping-list.controller
     ShoppingListModule,
     ShoppingItemsModule,
     ExpensesModule,
-    ProfilesModule,
+    UserPreferencesModule,
   ],
   controllers: [],
   providers: [],
@@ -41,7 +42,7 @@ export class AppModule implements NestModule {
         ShoppingListController,
         ShoppingItemsController,
         ExpensesController,
-        ProfilesController,
+        UserPreferencesController,
       );
   }
 }

@@ -96,10 +96,15 @@ export class GroupsController {
   }
 
   @Post('join-by-id/:groupId')
-  async createJoinRequest(@Param('groupId') groupId: string, @Request() req) {
+  async createJoinRequest(
+    @Param('groupId') groupId: string,
+    @Body() body: { password?: string },
+    @Request() req,
+  ) {
     return this.groupJoinRequestsService.createJoinRequest(
       groupId,
       req.user.id,
+      body.password,
     );
   }
 

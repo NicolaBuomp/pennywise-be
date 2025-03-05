@@ -448,18 +448,14 @@ export class GroupsService {
 
   /**
    * Recupera i membri del gruppo con i loro dettagli
+   * Modificato per utilizzare il nuovo sistema con auth e user-preferences
    */
   private async fetchGroupMembers(groupId: string) {
     const { data: membersData, error: membersError } =
       await this.supabaseService
         .getClient()
         .from('group_members')
-        .select(
-          `
-        user_id, role, joined_at,
-        profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
-        `,
-        )
+        .select('user_id, role, joined_at')
         .eq('group_id', groupId);
 
     if (membersError) {
@@ -468,21 +464,36 @@ export class GroupsService {
       );
     }
 
-    // Formatta i dati dei membri
-    const members = (membersData || []).map((member) => {
-      const profile = Array.isArray(member.profiles)
-        ? member.profiles[0]
-        : member.profiles;
+    if (!membersData || membersData.length === 0) {
+      return { members: [], membersCount: 0 };
+    }
+
+    // Estrai gli ID degli utenti
+    const userIds = membersData.map((member) => member.user_id);
+
+    // Recupera i dati degli utenti in batch
+    const usersData = await this.supabaseService.getUsersByIds(userIds);
+
+    // Mappa i membri con i dati utente
+    const members = membersData.map((member) => {
+      const userData = usersData.find((u) => u.id === member.user_id) || {
+        id: member.user_id,
+        first_name: '',
+        last_name: '',
+        full_name: 'Utente sconosciuto',
+        phone_number: null,
+        avatar_url: null,
+      };
 
       return {
-        id: profile?.id || member.user_id,
-        first_name: profile?.first_name || '',
-        last_name: profile?.last_name || '',
-        full_name: profile?.full_name || 'Utente sconosciuto',
+        id: userData.id,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        full_name: userData.full_name,
         role: member.role,
         joined_at: member.joined_at,
-        phone_number: profile?.phone_number || null,
-        avatar_url: profile?.avatar_url || null,
+        phone_number: userData.phone_number,
+        avatar_url: userData.avatar_url,
         balance: 0, // Verrà aggiornato successivamente
       };
     });
@@ -544,6 +555,7 @@ export class GroupsService {
 
   /**
    * Recupera le richieste di accesso al gruppo
+   * Modificato per utilizzare il nuovo sistema con auth e user-preferences
    */
   private async fetchGroupJoinRequests(
     groupId: string,
@@ -558,15 +570,7 @@ export class GroupsService {
       await this.supabaseService
         .getClient()
         .from('group_join_requests')
-        .select(
-          `
-        id,
-        user_id,
-        created_at,
-        status,
-        profiles (id, first_name, last_name, full_name, phone_number, avatar_url)
-        `,
-        )
+        .select('id, user_id, created_at, status')
         .eq('group_id', groupId)
         .eq('status', 'pending');
 
@@ -576,23 +580,38 @@ export class GroupsService {
       );
     }
 
-    // Mappa i dati delle richieste di accesso
-    return (joinRequestsData || []).map((request) => {
-      const profile = Array.isArray(request.profiles)
-        ? request.profiles[0]
-        : request.profiles;
+    if (!joinRequestsData || joinRequestsData.length === 0) {
+      return [];
+    }
+
+    // Estrai gli ID degli utenti
+    const userIds = joinRequestsData.map((request) => request.user_id);
+
+    // Recupera i dati degli utenti in batch
+    const usersData = await this.supabaseService.getUsersByIds(userIds);
+
+    // Mappa le richieste con i dati utente
+    return joinRequestsData.map((request) => {
+      const userData = usersData.find((u) => u.id === request.user_id) || {
+        id: request.user_id,
+        first_name: '',
+        last_name: '',
+        full_name: 'Utente sconosciuto',
+        phone_number: null,
+        avatar_url: null,
+      };
 
       return {
         id: request.id,
         created_at: request.created_at,
         status: request.status,
         user_info: {
-          id: profile?.id || request.user_id,
-          first_name: profile?.first_name || '',
-          last_name: profile?.last_name || '',
-          full_name: profile?.full_name || '',
-          phone_number: profile?.phone_number || null,
-          avatar_url: profile?.avatar_url || null,
+          id: userData.id,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          full_name: userData.full_name,
+          phone_number: userData.phone_number,
+          avatar_url: userData.avatar_url,
         },
       };
     });

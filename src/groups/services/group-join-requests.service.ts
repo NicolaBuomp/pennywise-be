@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class GroupJoinRequestsService {
@@ -11,18 +12,33 @@ export class GroupJoinRequestsService {
 
   /**
    * Gli utenti possono fare richiesta di ingresso a un gruppo usando il suo ID
+   * Se il gruppo è protetto da password, verifica la password
    */
-  async createJoinRequest(groupId: string, userId: string) {
-    // 1. Verifica che il gruppo esista
+  async createJoinRequest(groupId: string, userId: string, password?: string) {
+    // 1. Verifica che il gruppo esista e controlla se richiede password
     const { data: group, error: groupError } = await this.supabaseService
       .getClient()
       .from('groups')
-      .select('id')
+      .select('id, require_password, password_hash')
       .eq('id', groupId)
       .single();
 
     if (groupError || !group) {
       throw new NotFoundException('Gruppo non trovato');
+    }
+
+    // Verifica della password se il gruppo è protetto
+    if (group.require_password) {
+      // Se il gruppo richiede password ma non è stata fornita
+      if (!password) {
+        throw new ForbiddenException('Questo gruppo richiede una password');
+      }
+
+      // Verifica che la password sia corretta
+      const passwordMatch = await bcrypt.compare(password, group.password_hash);
+      if (!passwordMatch) {
+        throw new ForbiddenException('Password non valida');
+      }
     }
 
     // 2. Verifica che l'utente non sia già membro del gruppo
@@ -98,9 +114,7 @@ export class GroupJoinRequestsService {
       await this.supabaseService
         .getClient()
         .from('group_join_requests')
-        .select(
-          'id, user_id, status, created_at, profiles(id, first_name, last_name, full_name, phone_number, avatar_url)',
-        )
+        .select('id, user_id, status, created_at')
         .eq('group_id', groupId)
         .eq('status', 'pending');
 
@@ -108,11 +122,26 @@ export class GroupJoinRequestsService {
       throw new Error('Errore nel recupero delle richieste di ingresso');
     }
 
-    // Formatta i risultati per includere le informazioni del profilo
+    if (!joinRequests || joinRequests.length === 0) {
+      return [];
+    }
+
+    // Estrai gli ID degli utenti
+    const userIds = joinRequests.map((request) => request.user_id);
+
+    // Recupera i dati degli utenti in batch
+    const usersData = await this.supabaseService.getUsersByIds(userIds);
+
+    // Formatta i risultati combinando i dati delle richieste con i dati utente
     return joinRequests.map((request) => {
-      const profile = Array.isArray(request.profiles)
-        ? request.profiles[0]
-        : request.profiles;
+      const userData = usersData.find((u) => u.id === request.user_id) || {
+        id: request.user_id,
+        first_name: '',
+        last_name: '',
+        full_name: 'Utente sconosciuto',
+        phone_number: null,
+        avatar_url: null,
+      };
 
       return {
         id: request.id,
@@ -120,12 +149,12 @@ export class GroupJoinRequestsService {
         status: request.status,
         created_at: request.created_at,
         user_info: {
-          id: profile?.id || request.user_id,
-          first_name: profile?.first_name || '',
-          last_name: profile?.last_name || '',
-          full_name: profile?.full_name || '',
-          phone_number: profile?.phone_number || null,
-          avatar_url: profile?.avatar_url || null,
+          id: userData.id,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          full_name: userData.full_name,
+          phone_number: userData.phone_number,
+          avatar_url: userData.avatar_url,
         },
       };
     });
