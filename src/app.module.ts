@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { GroupsModule } from './groups/groups.module';
 import { GroupInvitesModule } from './groups/group-invite/group-invite.module';
 import { GroupJoinRequestsModule } from './groups/group-join-request/group-join-request.module';
+import { ExpensesModule } from './expenses/expenses.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { GroupJoinRequestsModule } from './groups/group-join-request/group-join-
     GroupsModule,
     GroupInvitesModule,
     GroupJoinRequestsModule,
+    ExpensesModule,
   ],
   controllers: [],
   providers: [],
