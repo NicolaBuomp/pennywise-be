@@ -242,8 +242,8 @@ export class BalanceService {
       .select(
         `
         *,
-        from_user:from_user_id(id, display_name, avatar_url),
-        to_user:to_user_id(id, display_name, avatar_url)
+        from_user:from_user_id(id, first_name, last_name, avatar_url),
+        to_user:to_user_id(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId);
@@ -262,7 +262,7 @@ export class BalanceService {
       .select(
         `
         user_id,
-        user:user_id(id, display_name, avatar_url)
+        user:user_id(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId);
@@ -273,10 +273,19 @@ export class BalanceService {
       );
     }
 
-    // Inizializza l'oggetto con tutti i membri
+    // Inizializza l'oggetto con tutti i membri e aggiungi display_name
     for (const member of members || []) {
+      const user = member.user && member.user[0];
       userBalances[member.user_id] = {
-        user: member.user,
+        user: user
+          ? {
+              ...user,
+              display_name:
+                user.first_name && user.last_name
+                  ? `${user.first_name} ${user.last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
         owes: [],
         isOwed: [],
         totalOwing: 0,
@@ -287,10 +296,34 @@ export class BalanceService {
 
     // Popola i saldi per ogni utente
     for (const balance of balances || []) {
+      // Aggiungi display_name ai from_user e to_user
+      const fromUser =
+        balance.from_user && balance.from_user[0]
+          ? {
+              ...balance.from_user[0],
+              display_name:
+                balance.from_user[0].first_name &&
+                balance.from_user[0].last_name
+                  ? `${balance.from_user[0].first_name} ${balance.from_user[0].last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null;
+
+      const toUser =
+        balance.to_user && balance.to_user[0]
+          ? {
+              ...balance.to_user[0],
+              display_name:
+                balance.to_user[0].first_name && balance.to_user[0].last_name
+                  ? `${balance.to_user[0].first_name} ${balance.to_user[0].last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null;
+
       // Aggiungi al debitore (chi deve)
       if (userBalances[balance.from_user_id]) {
         userBalances[balance.from_user_id].owes.push({
-          user: balance.to_user,
+          user: toUser,
           amount: balance.amount,
           currency: balance.currency,
         });
@@ -301,7 +334,7 @@ export class BalanceService {
       // Aggiungi al creditore (a chi è dovuto)
       if (userBalances[balance.to_user_id]) {
         userBalances[balance.to_user_id].isOwed.push({
-          user: balance.from_user,
+          user: fromUser,
           amount: balance.amount,
           currency: balance.currency,
         });
@@ -351,7 +384,7 @@ export class BalanceService {
         `
         amount,
         currency,
-        to_user:to_user_id(id, display_name, avatar_url)
+        to_user:to_user_id(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId)
@@ -369,7 +402,7 @@ export class BalanceService {
         `
         amount,
         currency,
-        from_user:from_user_id(id, display_name, avatar_url)
+        from_user:from_user_id(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId)
@@ -381,12 +414,45 @@ export class BalanceService {
       );
     }
 
+    // Formatta i risultati per includere display_name
+    const formattedOwes = (owes || []).map((owe) => {
+      const toUser = owe.to_user && owe.to_user[0];
+      return {
+        ...owe,
+        to_user: toUser
+          ? {
+              ...toUser,
+              display_name:
+                toUser.first_name && toUser.last_name
+                  ? `${toUser.first_name} ${toUser.last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
+      };
+    });
+
+    const formattedIsOwed = (isOwed || []).map((owed) => {
+      const fromUser = owed.from_user && owed.from_user[0];
+      return {
+        ...owed,
+        from_user: fromUser
+          ? {
+              ...fromUser,
+              display_name:
+                fromUser.first_name && fromUser.last_name
+                  ? `${fromUser.first_name} ${fromUser.last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
+      };
+    });
+
     // Calcola i totali
-    const totalOwing = (owes || []).reduce(
+    const totalOwing = formattedOwes.reduce(
       (sum, balance) => sum + balance.amount,
       0,
     );
-    const totalOwed = (isOwed || []).reduce(
+    const totalOwed = formattedIsOwed.reduce(
       (sum, balance) => sum + balance.amount,
       0,
     );
@@ -396,7 +462,7 @@ export class BalanceService {
     const { data: user, error: userError } = await this.supabaseService
       .getClient()
       .from('users')
-      .select('id, display_name, avatar_url')
+      .select('id, first_name, last_name, avatar_url')
       .eq('id', userId)
       .single();
 
@@ -404,10 +470,21 @@ export class BalanceService {
       throw new Error(`Errore nel recupero dell'utente: ${userError.message}`);
     }
 
+    // Aggiungi display_name
+    const formattedUser = user
+      ? {
+          ...user,
+          display_name:
+            user.first_name && user.last_name
+              ? `${user.first_name} ${user.last_name}`
+              : 'Utente sconosciuto',
+        }
+      : null;
+
     return {
-      user,
-      owes: owes || [],
-      isOwed: isOwed || [],
+      user: formattedUser,
+      owes: formattedOwes,
+      isOwed: formattedIsOwed,
       totalOwing,
       totalOwed,
       netBalance,

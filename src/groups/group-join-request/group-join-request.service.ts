@@ -112,7 +112,7 @@ export class GroupJoinRequestsService {
       .select(
         `
         *,
-        requester:user_id(id, display_name, avatar_url)
+        requester:user_id(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId)
@@ -123,7 +123,24 @@ export class GroupJoinRequestsService {
       throw new Error(`Errore nel recupero delle richieste: ${error.message}`);
     }
 
-    return requests || [];
+    // Formatta i risultati per includere un nome visualizzato
+    const formattedRequests = (requests || []).map((request) => {
+      const requester = request.requester && request.requester[0];
+      return {
+        ...request,
+        requester: requester
+          ? {
+              ...requester,
+              display_name:
+                requester.first_name && requester.last_name
+                  ? `${requester.first_name} ${requester.last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
+      };
+    });
+
+    return formattedRequests;
   }
 
   /**

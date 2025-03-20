@@ -12,7 +12,7 @@ import {
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -28,7 +28,7 @@ export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Crea un nuovo gruppo' })
   @ApiResponse({ status: 201, description: 'Gruppo creato con successo' })
@@ -47,7 +47,7 @@ export class GroupsController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Ottieni tutti i gruppi dell'utente" })
   findAll(@CurrentUser() user: any) {
@@ -55,7 +55,7 @@ export class GroupsController {
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Ottieni dettagli di un gruppo specifico' })
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
@@ -63,7 +63,7 @@ export class GroupsController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Aggiorna un gruppo' })
   update(
@@ -75,7 +75,7 @@ export class GroupsController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Elimina un gruppo' })
   remove(@Param('id') id: string, @CurrentUser() user: any) {

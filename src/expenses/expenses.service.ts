@@ -251,7 +251,7 @@ export class ExpensesService {
       .select(
         `
         *,
-        payer:paid_by(id, display_name, avatar_url),
+        payer:paid_by(id, first_name, last_name, avatar_url),
         category:category_id(id, name, color, icon),
         expense_shares(
           id, 
@@ -260,7 +260,7 @@ export class ExpensesService {
           percentage, 
           is_settled,
           settled_at,
-          user:user_id(id, display_name, avatar_url)
+          user:user_id(id, first_name, last_name, avatar_url)
         )
       `,
         { count: 'exact' },
@@ -350,7 +350,7 @@ export class ExpensesService {
       .select(
         `
         *,
-        payer:paid_by(id, display_name, avatar_url),
+        payer:paid_by(id, first_name, last_name, avatar_url),
         category:category_id(id, name, color, icon),
         expense_shares(
           id, 
@@ -359,7 +359,7 @@ export class ExpensesService {
           percentage, 
           is_settled, 
           settled_at,
-          user:user_id(id, display_name, avatar_url)
+          user:user_id(id, first_name, last_name, avatar_url)
         ),
         group:group_id(name, avatar_url)
       `,
@@ -372,7 +372,37 @@ export class ExpensesService {
       throw new NotFoundException(`Spesa con ID ${expenseId} non trovata`);
     }
 
-    return expense;
+    // Formatta i risultati per includere un nome visualizzato per il pagatore e gli utenti delle quote
+    const formattedExpense = {
+      ...expense,
+      payer:
+        expense.payer && expense.payer[0]
+          ? {
+              ...expense.payer[0],
+              display_name:
+                expense.payer[0].first_name && expense.payer[0].last_name
+                  ? `${expense.payer[0].first_name} ${expense.payer[0].last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
+      expense_shares: (expense.expense_shares || []).map((share) => {
+        const user = share.user && share.user[0];
+        return {
+          ...share,
+          user: user
+            ? {
+                ...user,
+                display_name:
+                  user.first_name && user.last_name
+                    ? `${user.first_name} ${user.last_name}`
+                    : 'Utente sconosciuto',
+              }
+            : null,
+        };
+      }),
+    };
+
+    return formattedExpense;
   }
 
   /**

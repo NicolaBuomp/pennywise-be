@@ -195,7 +195,7 @@ export class GroupsService {
           user_id,
           role,
           joined_at,
-          users(id, display_name, avatar_url)
+          users(id, first_name, last_name, avatar_url)
         )
       `,
       )

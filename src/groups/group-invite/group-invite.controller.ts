@@ -15,12 +15,12 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { GroupInvitesService } from './group-invite.service';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { SupabaseAuthGuard } from '../../auth/guards/supabase-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decoretors';
 
 @ApiTags('group-invites')
 @Controller('groups/:groupId/invites')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class GroupInvitesController {
   constructor(private readonly groupInvitesService: GroupInvitesService) {}
@@ -65,7 +65,7 @@ export class InvitesController {
   constructor(private readonly groupInvitesService: GroupInvitesService) {}
 
   @Post(':token/join')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SupabaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Unisciti a un gruppo tramite invito' })
   useInvite(@Param('token') token: string, @CurrentUser() user: any) {

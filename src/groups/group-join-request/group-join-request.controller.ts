@@ -14,13 +14,13 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { SupabaseAuthGuard } from '../../auth/guards/supabase-auth.guard';
 import { GroupJoinRequestsService } from './group-join-request.service';
 import { CurrentUser } from '../../auth/decorators/current-user.decoretors';
 
 @ApiTags('group-join-requests')
 @Controller('groups/:groupId/join-requests')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class GroupJoinRequestsController {
   constructor(
@@ -71,7 +71,7 @@ export class GroupJoinRequestsController {
 
 @ApiTags('user-join-requests')
 @Controller('user/join-requests')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class UserJoinRequestsController {
   constructor(

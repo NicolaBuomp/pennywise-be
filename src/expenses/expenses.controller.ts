@@ -31,12 +31,12 @@ import {
   CreateExpenseCategoryDto,
   UpdateExpenseCategoryDto,
 } from './dto/create-expense-category.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decoretors';
 
 @ApiTags('expenses')
 @Controller('groups/:groupId/expenses')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
@@ -119,7 +119,7 @@ export class ExpensesController {
 
 @ApiTags('expense-shares')
 @Controller('groups/:groupId/expenses/:expenseId/shares')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class ExpenseSharesController {
   constructor(private readonly expenseSharesService: ExpenseSharesService) {}
@@ -144,7 +144,7 @@ export class ExpenseSharesController {
 
 @ApiTags('expense-categories')
 @Controller('groups/:groupId/categories')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class ExpenseCategoriesController {
   constructor(private readonly categoryService: ExpenseCategoryService) {}
@@ -200,7 +200,7 @@ export class ExpenseCategoriesController {
 
 @ApiTags('user-expenses')
 @Controller('user/expenses')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class UserExpensesController {
   constructor(private readonly expenseSharesService: ExpenseSharesService) {}
@@ -230,7 +230,7 @@ export class UserExpensesController {
 
 @ApiTags('balances')
 @Controller('groups/:groupId/balances')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class BalancesController {
   constructor(private readonly balanceService: BalanceService) {}
@@ -268,7 +268,7 @@ export class BalancesController {
 
 @ApiTags('settlements')
 @Controller('groups/:groupId/settlements')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @ApiBearerAuth()
 export class SettlementsController {
   constructor(private readonly balanceService: BalanceService) {}

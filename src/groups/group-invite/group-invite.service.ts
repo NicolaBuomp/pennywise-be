@@ -96,7 +96,7 @@ export class GroupInvitesService {
       .select(
         `
         *,
-        creator:created_by(id, display_name, avatar_url)
+        creator:created_by(id, first_name, last_name, avatar_url)
       `,
       )
       .eq('group_id', groupId)
@@ -107,7 +107,24 @@ export class GroupInvitesService {
       throw new Error(`Errore nel recupero degli inviti: ${error.message}`);
     }
 
-    return invites || [];
+    // Formatta i risultati per includere un nome visualizzato
+    const formattedInvites = (invites || []).map((invite) => {
+      const creator = invite.creator && invite.creator[0];
+      return {
+        ...invite,
+        creator: creator
+          ? {
+              ...creator,
+              display_name:
+                creator.first_name && creator.last_name
+                  ? `${creator.first_name} ${creator.last_name}`
+                  : 'Utente sconosciuto',
+            }
+          : null,
+      };
+    });
+
+    return formattedInvites;
   }
 
   /**

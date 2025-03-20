@@ -132,7 +132,7 @@ export class ExpenseSharesService {
           currency,
           date,
           paid_by,
-          payer:paid_by(id, display_name, avatar_url)
+          payer:paid_by(id, first_name, last_name, avatar_url)
         )
       `,
       )
@@ -144,7 +144,28 @@ export class ExpenseSharesService {
       throw new Error(`Errore nel recupero delle quote: ${error.message}`);
     }
 
-    return shares || [];
+    // Formatta i risultati per includere un nome visualizzato per il pagatore
+    const formattedShares = (shares || []).map((share) => {
+      if (share.expense && share.expense.payer && share.expense.payer[0]) {
+        const payer = share.expense.payer[0];
+        return {
+          ...share,
+          expense: {
+            ...share.expense,
+            payer: {
+              ...payer,
+              display_name:
+                payer.first_name && payer.last_name
+                  ? `${payer.first_name} ${payer.last_name}`
+                  : 'Utente sconosciuto',
+            },
+          },
+        };
+      }
+      return share;
+    });
+
+    return formattedShares;
   }
 
   /**
